@@ -4,7 +4,7 @@ from hashlib import sha256
 from urllib.parse import urlsplit, unquote
 import posixpath
 
-VIDEO = set('mp4 mkv avi mov wmv mpg mpeg rm rmvb flv webm m4v ts mts m2ts vob ogv 3gp hevc divx asf'.split())
+VIDEO = set('mp4 mkv avi mov wmv mpg mpeg m1v m2v rm rmvb flv webm m4v ts mts m2ts vob ogv 3gp hevc xvid divx asf'.split())
 AUDIO = set('mp3 flac wav aac m4a ogg opus wma aiff ape alac ac3 dts mka amr mid'.split())
 IMAGES = set('jpg jpeg png webp gif bmp tif tiff ico avif heic heif'.split())
 

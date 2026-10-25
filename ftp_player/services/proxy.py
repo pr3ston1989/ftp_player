@@ -65,11 +65,13 @@ class MediaProxy:
                         return
 
                     def headers():
+                        self.close_connection = True
                         self.send_response(206 if partial else 200)
                         self.send_header('Content-Type', mimetypes.guess_type(entry.name)[0] or 'application/octet-stream')
                         self.send_header('Accept-Ranges', 'bytes')
                         self.send_header('Content-Length', str(end - start + 1 if size else 0))
                         self.send_header('Cache-Control', 'no-store')
+                        self.send_header('Connection', 'close')
                         if partial:
                             self.send_header('Content-Range', f'bytes {start}-{end}/{size}')
                         self.end_headers()

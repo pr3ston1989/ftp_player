@@ -49,7 +49,8 @@ final class RemoteClient {
         client.setConnectTimeout(15000); client.setDefaultTimeout(40000); client.setControlEncoding("UTF-8");
         try {
             client.connect(base.getHost(), base.getPort()>0 ? base.getPort():21);
-            if (!client.login(account.optString("username", "anonymous").isEmpty()?account.optString("username"):"anonymous", account.optString("password")))
+            String username=account.optString("username");
+            if (!client.login(username.isEmpty()?"anonymous":username, account.optString("password")))
                 throw new IOException("Serwer odrzucił dane logowania");
             if (client instanceof FTPSClient) { ((FTPSClient)client).execPBSZ(0); ((FTPSClient)client).execPROT("P"); }
             client.enterLocalPassiveMode(); client.setUseEPSVwithIPv4(true); client.setFileType(FTP.BINARY_FILE_TYPE);

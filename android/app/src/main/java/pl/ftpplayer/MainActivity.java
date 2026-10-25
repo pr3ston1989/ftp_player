@@ -168,7 +168,7 @@ public final class MainActivity extends Activity {
     static String kind(JSONObject entry) {
         if(entry.optBoolean("directory")) return "folder";
         String ext=entry.optString("name").replaceAll(".*\\.","").toLowerCase(Locale.ROOT);
-        if(Arrays.asList("mp4","mkv","avi","mov","wmv","mpg","mpeg","rm","rmvb","flv","webm","m4v","ts","mts","m2ts","vob","ogv","3gp","hevc","divx","asf").contains(ext)) return "video";
+        if(Arrays.asList("mp4","mkv","avi","mov","wmv","mpg","mpeg","m1v","m2v","rm","rmvb","flv","webm","m4v","ts","mts","m2ts","vob","ogv","3gp","hevc","xvid","divx","asf").contains(ext)) return "video";
         if(Arrays.asList("mp3","flac","wav","aac","m4a","ogg","opus","wma","aiff","ape","alac","ac3","dts","mka","amr").contains(ext)) return "audio";
         if(Arrays.asList("jpg","jpeg","png","webp","gif","bmp","tif","tiff","avif","heic","heif").contains(ext)) return "image";
         return "file";

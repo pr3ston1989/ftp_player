@@ -14,3 +14,6 @@ releases/
 _testdata/
 .pytest-*/
 emulator-*/
+FTPPlayer/
+runtime-check.json
+windows-media-results.json
