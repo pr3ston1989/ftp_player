@@ -21,7 +21,7 @@ subprocess.run(command+[str(root/'packaging/launcher.py')], cwd=root, check=True
 destination=root/'releases/FTPPlayer-1.0.0-Windows-x64'
 destination.mkdir(parents=True, exist_ok=True)
 shutil.copytree(root/'dist/FTPPlayer', destination/'FTPPlayer', dirs_exist_ok=True)
-for name in ('Start.cmd','Install.cmd','Install.ps1','README-WINDOWS.txt','THIRD-PARTY.txt'):
+for name in ('Start.cmd','Install.cmd','Install.ps1','README-WINDOWS.txt','THIRD-PARTY.txt','FFMPEG-LICENSE.txt'):
     shutil.copy2(root/'packaging'/name, destination/name)
 with zipfile.ZipFile(Path(str(destination)+'.zip'), 'w', zipfile.ZIP_DEFLATED, compresslevel=6) as archive:
     for file in destination.rglob('*'):
