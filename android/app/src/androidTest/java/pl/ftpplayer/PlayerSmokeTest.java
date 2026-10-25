@@ -2,6 +2,8 @@ package pl.ftpplayer;
 
 import androidx.test.platform.app.InstrumentationRegistry;
 import org.junit.Test;
+import org.junit.Before;
+import org.junit.After;
 import static org.junit.Assert.*;
 import android.app.Activity;
 import android.content.*;
@@ -13,6 +15,13 @@ import java.util.concurrent.atomic.AtomicReference;
 /** Local fixture tests on an emulator, including the embedded VLC boundary. */
 public class PlayerSmokeTest {
     android.app.Instrumentation getInstrumentation() { return InstrumentationRegistry.getInstrumentation(); }
+    private String originalProfiles;
+    @Before public void preserveProfiles() {
+        originalProfiles=getInstrumentation().getTargetContext().getSharedPreferences("accounts",0).getString("profiles","[]");
+    }
+    @After public void restoreProfiles() {
+        if(originalProfiles!=null) getInstrumentation().getTargetContext().getSharedPreferences("accounts",0).edit().putString("profiles",originalProfiles).commit();
+    }
     JSONObject account(String protocol) throws Exception {
         return new JSONObject().put("id","fixture-"+protocol).put("name","Test "+protocol)
             .put("address",protocol+"://"+InstrumentationRegistry.getArguments().getString("host","10.0.2.2")+":"+(protocol.equals("ftp")?"21210":"8767")+"/")

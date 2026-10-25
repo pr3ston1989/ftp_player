@@ -48,16 +48,22 @@ public final class MainActivity extends Activity {
         } else status.setText("Dodaj pierwszy serwer, aby otworzyć swoją bibliotekę.");
     }
     private void build() {
-        LinearLayout root=new LinearLayout(this); root.setOrientation(1); root.setPadding(dp(tv?32:16),dp(tv?22:12),dp(tv?32:16),dp(12)); root.setBackgroundColor(BG); setContentView(root);
-        LinearLayout header=new LinearLayout(this); header.setGravity(Gravity.CENTER_VERTICAL); root.addView(header);
+        LinearLayout root=new LinearLayout(this); root.setOrientation(tv?0:1); root.setPadding(dp(tv?26:16),dp(tv?18:12),dp(tv?26:16),dp(12)); root.setBackgroundColor(BG); setContentView(root);
+        LinearLayout side=root;
+        if(tv) {
+            side=new LinearLayout(this); side.setOrientation(1); root.addView(side,new LinearLayout.LayoutParams(dp(230),-1));
+            LinearLayout content=new LinearLayout(this); content.setOrientation(1); content.setPadding(dp(22),0,0,0); root.addView(content,new LinearLayout.LayoutParams(0,-1,1)); root=content;
+        }
+        LinearLayout header=new LinearLayout(this); header.setGravity(Gravity.CENTER_VERTICAL); side.addView(header);
         ImageView logo=new ImageView(this); logo.setImageResource(R.drawable.icon); header.addView(logo,new LinearLayout.LayoutParams(dp(48),dp(48)));
         LinearLayout brand=new LinearLayout(this); brand.setOrientation(1); brand.setPadding(dp(12),0,0,0);
-        TextView title=text("FTP PLAYER",tv?26:22,TEXT); title.setTypeface(null,Typeface.BOLD); brand.addView(title);
+        TextView title=text("FTP PLAYER",22,TEXT); title.setTypeface(null,Typeface.BOLD); brand.addView(title);
         brand.addView(text("Twoja prywatna biblioteka",13,MUTED)); header.addView(brand,new LinearLayout.LayoutParams(0,dp(64),1));
-        header.addView(button("＋",()->editAccount(null)),new LinearLayout.LayoutParams(dp(50),dp(48)));
-        LinearLayout servers=new LinearLayout(this); servers.setGravity(Gravity.CENTER_VERTICAL); root.addView(servers);
-        accountPicker=new Spinner(this); servers.addView(accountPicker,new LinearLayout.LayoutParams(0,dp(56),1));
-        servers.addView(button("Ustawienia",this::settings),new LinearLayout.LayoutParams(dp(tv?160:115),dp(46)));
+        if(!tv) header.addView(button("＋",()->editAccount(null)),new LinearLayout.LayoutParams(dp(50),dp(48)));
+        LinearLayout servers=new LinearLayout(this); servers.setGravity(Gravity.CENTER_VERTICAL); if(tv) servers.setOrientation(1); side.addView(servers);
+        accountPicker=new Spinner(this); servers.addView(accountPicker,tv?new LinearLayout.LayoutParams(-1,dp(56)):new LinearLayout.LayoutParams(0,dp(56),1));
+        servers.addView(button("Ustawienia",this::settings),new LinearLayout.LayoutParams(tv?-1:dp(115),dp(46)));
+        if(tv) { side.addView(button("＋ Dodaj serwer",()->editAccount(null)),new LinearLayout.LayoutParams(-1,dp(46))); side.addView(text("HTTPS / FTPS / FTP",14,MUTED),new LinearLayout.LayoutParams(-1,dp(40))); }
         accountPicker.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener() {
             @Override public void onNothingSelected(android.widget.AdapterView<?> p) {}
             @Override public void onItemSelected(android.widget.AdapterView<?> p,View v,int index,long id) {
@@ -101,7 +107,7 @@ public final class MainActivity extends Activity {
                 LinearLayout description=(LinearLayout)row.getChildAt(1); ((TextView)description.getChildAt(0)).setText(entry.optString("name"));
                 TextView info=(TextView)description.getChildAt(1); info.setVisibility(type.equals("folder")?View.GONE:View.VISIBLE);
                 info.setText(type.toUpperCase(Locale.ROOT)+(entry.optLong("size")>0?" · "+android.text.format.Formatter.formatShortFileSize(MainActivity.this,entry.optLong("size")):""));
-                row.setMinimumHeight(dp(type.equals("folder")?(tv?54:48):(tv?82:76)));
+                row.setMinimumHeight(dp(type.equals("folder")?(tv?54:48):(tv?72:76)));
                 return row;
             }
         };
@@ -125,7 +131,7 @@ public final class MainActivity extends Activity {
                 JSONArray proposed=new JSONArray(); for(int i=0;i<accounts.length();i++) if(!accounts.optJSONObject(i).optString("id").equals(account.optString("id"))) proposed.put(accounts.optJSONObject(i));
                 if(save(proposed)) { generation++; account=null; entries=new JSONArray(); refreshAccounts(); render(); location.setText("Wybierz serwer"); }
             }).show();
-            if(index==3) new AlertDialog.Builder(this).setTitle("FTP Player 1.0.0").setMessage("FTP / FTPS / HTTPS index of\nWbudowany libVLC: wideo i audio.\nSterowanie dotykiem i pilotem TV.\nHasła: Android Keystore.\nNie każdy profil 4K ma sprzętowy dekoder na każdym urządzeniu.").setPositiveButton("OK",null).show();
+            if(index==3) new AlertDialog.Builder(this).setTitle("FTP Player 1.0.1").setMessage("FTP / FTPS / HTTPS index of\nWbudowany libVLC: wideo i audio.\nSterowanie dotykiem i pilotem TV.\nHasła: Android Keystore.\nNie każdy profil 4K ma sprzętowy dekoder na każdym urządzeniu.").setPositiveButton("OK",null).show();
         }).show();
     }
     private void editAccount(JSONObject current) {
