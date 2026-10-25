@@ -1,0 +1,16 @@
+__pycache__/
+.venv/
+.gradle/
+build/
+dist/
+*.spec
+*.log
+*.jks
+*.keystore
+local.properties
+.pytest_cache/
+native/
+releases/
+_testdata/
+.pytest-*/
+emulator-*/

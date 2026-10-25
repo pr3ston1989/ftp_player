@@ -1,0 +1,18 @@
+FTP Player reuses selected player and theme components from the user's Chomik Explorer.
+Application source: https://github.com/pr3ston1989/ftp_player
+
+mpv/libmpv — GPL/LGPL depending on build: https://github.com/mpv-player/mpv
+Native Windows build source: https://github.com/zhongfly/mpv-winbuild
+FFmpeg/ffprobe — GPL/LGPL: https://ffmpeg.org/legal.html
+FFmpeg build source: https://github.com/BtbN/FFmpeg-Builds
+Python — PSF: https://www.python.org/downloads/source/
+Tcl/Tk — https://www.tcl.tk/software/tcltk/license.html
+Pillow — https://github.com/python-pillow/Pillow
+pillow-heif/libheif — https://github.com/bigcat88/pillow_heif and https://github.com/strukturag/libheif
+requests — Apache 2.0: https://github.com/psf/requests
+
+Android:
+libVLC — LGPL 2.1: https://code.videolan.org/videolan/vlc
+Commons Net — Apache 2.0: https://commons.apache.org/proper/commons-net/
+jsoup — MIT: https://jsoup.org/license
+NanoHTTPD — BSD: https://github.com/NanoHttpd/nanohttpd
