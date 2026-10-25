@@ -22,7 +22,12 @@ jobs:
         with:
           distribution: temurin
           java-version: '21'
-      - run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+      - name: Prepare Android SDK
+        run: |
+          sdk_root="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          sdk_manager="$(find "$sdk_root/cmdline-tools" -type f -name sdkmanager | head -n 1)"
+          test -n "$sdk_manager"
+          "$sdk_manager" "platforms;android-35" "build-tools;35.0.0"
       - uses: gradle/actions/setup-gradle@v4
       - run: chmod +x android/gradlew
       - run: cd android && ./gradlew assembleDebug --no-daemon
