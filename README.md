@@ -34,6 +34,10 @@ podczas transferu, statyczna ikona po zakończeniu oraz otwieranie pliku w domy�
 aplikacji. Zapisane pliki można otwierać także z historii pobierania.
 Szczegóły: [RELEASE_1.1.4.md](RELEASE_1.1.4.md).
 
+Aktualizacja Windows **1.1.5** poprawia kontrast wartości list rozwijanych: widok,
+sortowanie i liczbę klatek. Poprawione są pola readonly, zaznaczenia oraz rozwinięte
+listy. Szczegóły: [RELEASE_1.1.5.md](RELEASE_1.1.5.md).
+
 ## FTP czy HTTPS?
 
 | Dostęp | Kiedy wybrać | Wymagania |

@@ -1,4 +1,4 @@
-FTP PLAYER 1.1.3 — WINDOWS 10/11 x64
+FTP PLAYER 1.1.5 — WINDOWS 10/11 x64
 
 1. Wypakuj CALY ZIP.
 2. Uruchom Install.cmd (instalacja dla biezacego uzytkownika, skrot na pulpit)

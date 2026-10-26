@@ -192,6 +192,24 @@ class Theme:
                         insertcolor=p.text, borderwidth=1, relief="flat", padding=PAD_SM)
         style.map("TEntry", bordercolor=[("focus", p.accent)])
 
+        # Clam ma własne kolory readonly; samo dziedziczenie z "." daje jasny tekst na jasnym tle.
+        style.configure("TCombobox", fieldbackground=p.surface, foreground=p.text,
+                        background=p.surface_alt, arrowcolor=p.text, bordercolor=p.border,
+                        selectbackground=p.selection, selectforeground=p.selection_text,
+                        padding=PAD_SM)
+        style.map("TCombobox",
+                  fieldbackground=[("disabled", p.surface), ("readonly", p.surface)],
+                  foreground=[("disabled", p.text_muted), ("!disabled", p.text)],
+                  arrowcolor=[("disabled", p.text_muted), ("!disabled", p.text)],
+                  selectbackground=[("disabled", p.surface), ("!disabled", p.selection)],
+                  selectforeground=[("disabled", p.text_muted), ("!disabled", p.selection_text)],
+                  bordercolor=[("focus", p.accent)])
+        # Rozwijana lista to klasyczny Listbox, który nie korzysta ze stylu ttk.
+        for option, value in {"background": p.surface, "foreground": p.text,
+                              "selectBackground": p.selection, "selectForeground": p.selection_text,
+                              "font": self.font, "activestyle": "none"}.items():
+            self.root.option_add(f"*TCombobox*Listbox.{option}", value)
+
         # Treeview (drzewo + listy plików).
         row_h = self.font.metrics("linespace") + 16
         style.configure("Treeview", background=p.surface, fieldbackground=p.surface,
