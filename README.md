@@ -15,16 +15,19 @@ Paczki są w [GitHub Releases](https://github.com/pr3ston1989/ftp_player/release
 Po uruchomieniu wybierz **Dodaj serwer**. Wpisz nazwę, pełny adres, login i hasło.
 Konta można później edytować, dodawać i usuwać. Usunięcie konta nie zmienia plików serwera.
 
-Wersja **1.1.2** dodaje cachowane pokazy 1, 3, 5, 10 lub 20 klatek, sortowanie i metadane,
-listę lub duże karty na Androidzie oraz szczegóły i cztery rozmiary kafelków Windows.
+Wersja **1.1.3** domyślnie pokazuje jedną miniaturę. Możesz wyłączyć podglądy
+lub wybrać 3, 5, 10 albo 20 klatek. Dostępne są sortowanie i metadane,
+lista lub duże karty na Androidzie oraz szczegóły i cztery rozmiary kafelków Windows.
 Na PC widok zmienisz z listy nad plikami lub Ctrl+kółko; kliknięcie nagłówka sortuje kolumnę.
 Na Androidzie użyj **▦**, **Sortuj** i menu **⋯**. Przytrzymanie pliku otwiera
 pobieranie i dodawanie do ulubionych. Przycisk **★** przy ścieżce zarządza folderem
 startowym i zakładkami. Zapisane pozycje są sprawdzane przy otwieraniu.
 Liczbę wybierzesz w menu ⋯ → Liczba klatek podglądu (Android/TV) lub w polu
-Klatki nad listą (Windows). Domyślnie 10 klatek pochodzi z 5%, 15%, …, 95% filmu. Bez HTTP Range podglądy nie wykonują
+Klatki nad listą (Windows). Domyślnie pobierana jest jedna klatka ze środka filmu;
+Wyłączone / Wył. blokuje generowanie i wczytywanie miniaturek. Duże foldery Androida
+są filtrowane i sortowane w tle, a podglądy powstają po zatrzymaniu przewijania. Bez HTTP Range podglądy nie wykonują
 kosztownego przewijania od początku; zwykłe odtwarzanie działa jak dotychczas.
-Szczegóły aktualizacji: [RELEASE_1.1.2.md](RELEASE_1.1.2.md).
+Szczegóły aktualizacji: [RELEASE_1.1.3.md](RELEASE_1.1.3.md).
 
 ## FTP czy HTTPS?
 

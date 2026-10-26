@@ -12,8 +12,8 @@ from ..core.accounts import data_dir
 from ..core.library import server_key
 
 
-FRAME_COUNT = 10
-FRAME_COUNTS = (1, 3, 5, 10, 20)
+FRAME_COUNT = 1
+FRAME_COUNTS = (0, 1, 3, 5, 10, 20)
 
 
 def preview_count(value):
@@ -39,7 +39,7 @@ class ThumbnailCache:
 
     def key(self, account, entry):
         stamp = f'{server_key(account)}:{entry.path}:{entry.size}:{entry.modified}:ten-v1'
-        if self.frame_count != FRAME_COUNT:
+        if self.frame_count != 10:
             stamp += f':{self.frame_count}'
         return sha256(stamp.encode()).hexdigest()
 
@@ -53,6 +53,8 @@ class ThumbnailCache:
         return []
 
     def create(self, account, entry, url, cancelled=lambda: False):
+        if not self.frame_count:
+            return []
         key = self.key(account, entry)
         if self._failed.get(key, 0) > time.monotonic():
             return []

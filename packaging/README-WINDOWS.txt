@@ -1,4 +1,4 @@
-FTP PLAYER 1.1.2 — WINDOWS 10/11 x64
+FTP PLAYER 1.1.3 — WINDOWS 10/11 x64
 
 1. Wypakuj CALY ZIP.
 2. Uruchom Install.cmd (instalacja dla biezacego uzytkownika, skrot na pulpit)
@@ -18,7 +18,7 @@ Hasla nie sa przenoszone razem z paczka na inny komputer.
 Podwojne klikniecie / Enter: otworz. F5: odswiez. Alt+Gora: folder nadrzedny.
 Player: F11 — pelny ekran; Spacja — pauza; strzalki — przewijanie.
 Widok: szczegoly lub 4 rozmiary kafelkow, takze Ctrl+kolko myszy.
-Naglowki kolumn: sortowanie. Pokaz slajdow: opcja nad lista. Klatki: wybor 1, 3, 5, 10 lub 20.
+Naglowki kolumn: sortowanie. Pokaz slajdow: opcja nad lista. Klatki: Wyl. albo 1 (domyslnie), 3, 5, 10 lub 20.
 Zakladki/ulubione i folder startowy: przyciski w bocznym panelu.
 Miniatury sa przechowywane w cache, nie sa pobierane ponownie przy zmianie widoku.
 Zdjecia: strzalki — poprzednie/nastepne, kolko — zoom, przeciaganie — przesuwanie.

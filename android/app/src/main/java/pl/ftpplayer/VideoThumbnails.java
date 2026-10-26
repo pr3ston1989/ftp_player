@@ -14,8 +14,8 @@ import java.util.concurrent.*;
 
 /** One silent libVLC decoder, ten distributed cached frames, bounded disk/RAM and stale-job cancellation. */
 final class VideoThumbnails {
-    static final int FRAME_COUNT=10;
-    static final int[] FRAME_COUNTS={1,3,5,10,20};
+    static final int FRAME_COUNT=1;
+    static final int[] FRAME_COUNTS={0,1,3,5,10,20};
     static int normalizeCount(int value){for(int allowed:FRAME_COUNTS)if(value==allowed)return value;return FRAME_COUNT;}
     static float fraction(int index){return fraction(index,FRAME_COUNT);}
     static float fraction(int index,int count){return (index+.5f)/count;}
@@ -32,6 +32,7 @@ final class VideoThumbnails {
     private final File directory;
     private final Set<String> pending=new HashSet<>();
     private final Map<String,Long> failed=new HashMap<>();
+    private Set<String> visibleKeys;
     private final ArrayDeque<Job> queue=new ArrayDeque<>();
     private LibVLC engine; private MediaPlayer player; private volatile Job current;
     private volatile int generation; private int frame, saved; private long deadline, captureAt, duration, initialTexture; private boolean seeking,loaded,stopping; private volatile boolean closed;
@@ -44,9 +45,10 @@ final class VideoThumbnails {
     }
     void setFrameCount(int value){int next=normalizeCount(value);if(next==frameCount)return;cancel();frameCount=next;sampleTimes=new long[next];captured=new Bitmap[next];memory.evictAll();}
     int frameCount(){return frameCount;}
-    String key(JSONObject account,JSONObject entry) { return LibraryStore.hash(LibraryStore.key(account)+":"+entry.optString("path")+":"+entry.optLong("size")+":"+entry.optLong("modified")+":ten-v4"+(frameCount==FRAME_COUNT?"":":"+frameCount)); }
-    Bitmap[] get(JSONObject account,JSONObject entry) { return memory.get(key(account,entry)); }
+    String key(JSONObject account,JSONObject entry) { return LibraryStore.hash(LibraryStore.key(account)+":"+entry.optString("path")+":"+entry.optLong("size")+":"+entry.optLong("modified")+":ten-v4"+(frameCount==10?"":":"+frameCount)); }
+    Bitmap[] get(JSONObject account,JSONObject entry) { return frameCount==0?null:memory.get(key(account,entry)); }
     void request(JSONObject account,JSONObject entry) {
+        if(frameCount==0||closed)return;
         String key=key(account,entry);
         if(closed||memory.get(key)!=null||pending.contains(key)||failed.containsKey(key)&&failed.get(key)>SystemClock.elapsedRealtime()||pending.size()>20)return;
         pending.add(key);final int requested=generation, count=frameCount;
@@ -61,13 +63,20 @@ final class VideoThumbnails {
             final boolean found=valid;
             ui.post(()-> {
                 if(closed||requested!=generation)return;
+                if(visibleKeys!=null&&!visibleKeys.contains(key)){pending.remove(key);return;}
                 if(found){memory.put(key,frames);pending.remove(key);changed.run();}
                 else {queue.add(new Job(account,entry,key,requested));next();}
             });
         });
     }
+    void retainVisible(JSONObject account,List<JSONObject> entries){
+        Set<String> keys=new HashSet<>();for(JSONObject entry:entries)keys.add(key(account,entry));
+        if(current!=null&&!keys.contains(current.key))cancel();
+        visibleKeys=keys;
+        for(Iterator<Job> iterator=queue.iterator();iterator.hasNext();){Job job=iterator.next();if(!keys.contains(job.key)){pending.remove(job.key);iterator.remove();}}
+    }
     private void next() {
-        if(closed||stopping||current!=null||queue.isEmpty())return;
+        if(closed||frameCount==0||stopping||current!=null||queue.isEmpty())return;
         current=queue.removeFirst();frame=0;saved=0;seeking=false;Arrays.fill(captured,null);duration=0;deadline=SystemClock.elapsedRealtime()+15000;
         final Job job=current;decoder.execute(()->nativeFrames(job));
     }

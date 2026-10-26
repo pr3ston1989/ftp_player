@@ -26,11 +26,12 @@ public final class MainActivity extends Activity {
     private LibraryStore library;
     private VideoThumbnails thumbnails;
     private String sortKey="name", pendingOpen="", pendingDownloadAccount="";
-    private boolean descending, slides=true, cards, metadataPending, metadataRetry;
+    private boolean descending, slides=true, cards, metadataPending, metadataRetry, metadataDirty, scrolling;
     private JSONObject pendingDownload;
     private int slideFrame;
+    private volatile int renderVersion;
     private static final class Row { int type;ImageView thumbnail;TextView symbol,title,info;JSONObject entry; }
-    private final Runnable slideshow=new Runnable(){public void run(){if(closed||paused)return;slideFrame=(slideFrame+1)%60;refreshImages();ui.postDelayed(this,1100);}};
+    private final Runnable slideshow=new Runnable(){public void run(){if(closed||paused||!slides||thumbnails==null||thumbnails.frameCount()<2)return;slideFrame=(slideFrame+1)%60;refreshImages();ui.postDelayed(this,1100);}};
     AppState state() { return (AppState)getApplication(); }
     int dp(int n) { return Math.round(n*getResources().getDisplayMetrics().density); }
     TextView text(String s,int size,int color) { TextView v=new TextView(this); v.setText(s); v.setTextSize(size); v.setTextColor(color); v.setGravity(Gravity.CENTER_VERTICAL); return v; }
@@ -64,7 +65,7 @@ public final class MainActivity extends Activity {
         LinearLayout root=new LinearLayout(this);root.setOrientation(wide?0:1);root.setPadding(dp(wide?12:16),dp(compact?6:12),dp(wide?12:16),dp(compact?4:10));root.setBackgroundColor(BG);
         FrameLayout stage=new FrameLayout(this);setContentView(stage);
         TextureView preview=new TextureView(this);stage.addView(preview,new FrameLayout.LayoutParams(dp(320),dp(180)));stage.addView(root,new FrameLayout.LayoutParams(-1,-1));
-        thumbnails=new VideoThumbnails(this,preview,this::refreshImages);thumbnails.setFrameCount(getPreferences(0).getInt("previewFrames",10));
+        thumbnails=new VideoThumbnails(this,preview,this::refreshImages);thumbnails.setFrameCount(getPreferences(0).getInt("previewFrames",1));
         LinearLayout side=root;
         if(wide) {
             side=new LinearLayout(this); side.setOrientation(1); root.addView(side,new LinearLayout.LayoutParams(dp(compact?170:230),-1));
@@ -136,6 +137,10 @@ public final class MainActivity extends Activity {
                 bindImage(holder);return row;
             }
         };
+        items.setOnScrollListener(new AbsListView.OnScrollListener(){
+            public void onScrollStateChanged(AbsListView view,int state){scrolling=state!=SCROLL_STATE_IDLE;ui.removeCallbacks(visibleWork);if(scrolling){if(thumbnails!=null)thumbnails.cancel();}else{ui.postDelayed(visibleWork,180);if(metadataDirty)ui.post(metadataFlush);}}
+            public void onScroll(AbsListView view,int first,int count,int total){if(!scrolling)scheduleVisibleWork();}
+        });
         items.setAdapter(fileAdapter); items.setOnItemClickListener((parent,view,index,id)->open(visible.get(index)));
         items.setOnItemLongClickListener((parent,view,index,id)->{entryActions(visible.get(index));return true;});
         status=text("Gotowy",13,MUTED); status.setPadding(0,dp(8),0,0); root.addView(status,new LinearLayout.LayoutParams(-1,dp(compact?24:32)));
@@ -157,7 +162,7 @@ public final class MainActivity extends Activity {
                 JSONArray proposed=new JSONArray(); for(int i=0;i<accounts.length();i++) if(!accounts.optJSONObject(i).optString("id").equals(account.optString("id"))) proposed.put(accounts.optJSONObject(i));
                 if(save(proposed)) { generation++; account=null; entries=new JSONArray(); refreshAccounts(); render(); location.setText("Wybierz serwer"); }
             }).show();
-            if(index==3) new AlertDialog.Builder(this).setTitle("FTP Player 1.1.2").setMessage("FTP / FTPS / HTTPS index of\nWbudowany libVLC: wideo i audio.\nSterowanie dotykiem i pilotem TV.\nHasła: Android Keystore.\nNie każdy profil 4K ma sprzętowy dekoder na każdym urządzeniu.").setPositiveButton("OK",null).show();
+            if(index==3) new AlertDialog.Builder(this).setTitle("FTP Player 1.1.3").setMessage("FTP / FTPS / HTTPS index of\nWbudowany libVLC: wideo i audio.\nSterowanie dotykiem i pilotem TV.\nHasła: Android Keystore.\nNie każdy profil 4K ma sprzętowy dekoder na każdym urządzeniu.").setPositiveButton("OK",null).show();
         }).show();
     }
     private void editAccount(JSONObject current) {
@@ -200,25 +205,30 @@ public final class MainActivity extends Activity {
     }
     static String kind(JSONObject entry) {
         if(entry.optBoolean("directory")) return "folder";
-        String ext=entry.optString("name").replaceAll(".*\\.","").toLowerCase(Locale.ROOT);
+        String ext=LibraryStore.extension(entry);
         if(Arrays.asList("mp4","mkv","avi","mov","wmv","mpg","mpeg","m1v","m2v","rm","rmvb","flv","webm","m4v","ts","mts","m2ts","vob","ogv","3gp","hevc","xvid","divx","asf").contains(ext)) return "video";
         if(Arrays.asList("mp3","flac","wav","aac","m4a","ogg","opus","wma","aiff","ape","alac","ac3","dts","mka","amr").contains(ext)) return "audio";
         if(Arrays.asList("jpg","jpeg","png","webp","gif","bmp","tif","tiff","avif","heic","heif").contains(ext)) return "image";
         return "file";
     }
     private void render() {
-        if(items==null) return;
-        int first=items.getFirstVisiblePosition();String anchor=first>=0&&first<visible.size()?visible.get(first).optString("path"):"";int offset=items.getChildCount()>0?items.getChildAt(0).getTop():0;
-        visible.clear();
-        for(int i=0;i<entries.length();i++) {
-            JSONObject entry=entries.optJSONObject(i); String type=kind(entry);
-            if(!entry.optString("name").toLowerCase(Locale.ROOT).contains(query)||(!kind.equals("all")&&!type.equals("folder")&&!type.equals(kind))) continue;
-            visible.add(entry);
-        }
-        LibraryStore.sort(visible,sortKey,descending);
-        empty.setText(account==null?"Dodaj serwer przyciskiem ＋":"Brak plików pasujących do filtra");
-        fileAdapter.notifyDataSetChanged();
+        if(items==null)return;final int ticket=++renderVersion;
+        int first=items.getFirstVisiblePosition();final String anchor=first>=0&&first<visible.size()?visible.get(first).optString("path"):"";final int offset=items.getChildCount()>0?items.getChildAt(0).getTop():0;
+        final JSONArray source=entries;final String filter=query,selectedKind=kind,order=sortKey;final boolean reverse=descending;
+        if(source.length()>256){
+            state().workers.execute(()->{if(ticket!=renderVersion||closed)return;ArrayList<JSONObject> filtered=filterRows(source,filter,selectedKind,ticket);if(filtered==null)return;ArrayList<JSONObject> sorted=LibraryStore.sorted(LibraryStore.snapshot(filtered),order,reverse);ui.post(()->{if(!closed&&ticket==renderVersion)applyRows(sorted,anchor,offset);});});
+        }else{ArrayList<JSONObject> filtered=filterRows(source,filter,selectedKind,ticket);if(filtered!=null){LibraryStore.sort(filtered,order,reverse);applyRows(filtered,anchor,offset);}}
+    }
+    private ArrayList<JSONObject> filterRows(JSONArray source,String filter,String selectedKind,int ticket){
+        ArrayList<JSONObject> filtered=new ArrayList<>();for(int i=0;i<source.length();i++){
+            if((i&255)==0&&(closed||ticket!=renderVersion))return null;JSONObject entry=source.optJSONObject(i);String type=kind(entry);
+            if(!entry.optString("name").toLowerCase(Locale.ROOT).contains(filter)||(!selectedKind.equals("all")&&!type.equals("folder")&&!type.equals(selectedKind)))continue;filtered.add(entry);
+        }return filtered;
+    }
+    private void applyRows(List<JSONObject> rows,String anchor,int offset){
+        visible.clear();visible.addAll(rows);empty.setText(account==null?"Dodaj serwer przyciskiem ＋":"Brak plików pasujących do filtra");fileAdapter.notifyDataSetChanged();
         for(int i=0;i<visible.size();i++)if(visible.get(i).optString("path").equals(anchor)){items.setSelectionFromTop(i,offset);break;}
+        scheduleVisibleWork();
     }
     private void open(JSONObject entry) {
         if(entry.optBoolean("directory")) { navigate(entry.optString("path")); return; }
@@ -240,28 +250,47 @@ public final class MainActivity extends Activity {
         } catch(Exception error) { toast("Nie udało się otworzyć pliku"); }
     }
     private void bindImage(Row row){
-        if(account==null||thumbnails==null||!kind(row.entry).equals("video")){row.thumbnail.setImageDrawable(null);row.symbol.setVisibility(View.VISIBLE);return;}
+        if(account==null||thumbnails==null||thumbnails.frameCount()==0||!kind(row.entry).equals("video")){row.thumbnail.setImageDrawable(null);row.symbol.setVisibility(View.VISIBLE);return;}
         android.graphics.Bitmap[] frames=thumbnails.get(account,row.entry);
         if(frames!=null){row.thumbnail.setImageBitmap(frames[slides?slideFrame%frames.length:0]);row.symbol.setVisibility(View.GONE);}
-        else{row.thumbnail.setImageDrawable(null);row.symbol.setVisibility(View.VISIBLE);if(row.entry.optBoolean("sizeExact"))thumbnails.request(account,row.entry);}
+        else{row.thumbnail.setImageDrawable(null);row.symbol.setVisibility(View.VISIBLE);}
     }
     private void refreshImages(){if(items==null)return;for(int i=0;i<items.getChildCount();i++){Object tag=items.getChildAt(i).getTag();if(tag instanceof Row)bindImage((Row)tag);}}
+    private void restartSlideshow(){ui.removeCallbacks(slideshow);if(!paused&&slides&&thumbnails!=null&&thumbnails.frameCount()>1)ui.postDelayed(slideshow,1100);}
+    private void scheduleVisibleWork(){ui.removeCallbacks(visibleWork);if(!closed&&!paused&&!scrolling)ui.postDelayed(visibleWork,180);}
+    private final Runnable visibleWork=()->{
+        if(closed||paused||scrolling||account==null||thumbnails==null)return;
+        ArrayList<JSONObject> shown=new ArrayList<>(),videos=new ArrayList<>();
+        for(int i=0;i<items.getChildCount();i++){Object tag=items.getChildAt(i).getTag();if(tag instanceof Row){JSONObject entry=((Row)tag).entry;shown.add(entry);if(kind(entry).equals("video"))videos.add(entry);}}
+        if(thumbnails.frameCount()>0){thumbnails.retainVisible(account,videos);for(JSONObject entry:videos)if(entry.optBoolean("sizeExact"))thumbnails.request(account,entry);}
+        metadata(new JSONArray(shown),generation,account);refreshImages();
+    };
+    private final Runnable metadataFlush=()->{
+        if(closed)return;if(paused||scrolling)return;metadataDirty=false;
+        if(sortKey.equals("size")||sortKey.equals("modified"))render();else if(fileAdapter!=null)fileAdapter.notifyDataSetChanged();
+        scheduleVisibleWork();
+    };
+    private void metadataChanged(){if(!metadataDirty){metadataDirty=true;ui.postDelayed(metadataFlush,180);}}
     private void metadata(JSONArray rows,int request,JSONObject selected){
-        if(metadataPending){metadataRetry=true;return;}metadataPending=true;
-        state().workers.execute(()->{try{for(int i=0;i<rows.length();i++){
-            if(closed||paused||generation!=request)return;JSONObject entry=rows.optJSONObject(i);if(entry.optBoolean("directory")||entry.optBoolean("sizeExact"))continue;
-            try{JSONObject updated=new RemoteClient(selected).stat(entry);ui.post(()->{if(closed||generation!=request)return;try{entry.put("size",updated.optLong("size")).put("modified",updated.optLong("modified")).put("metadataKnown",true).put("sizeExact",true);render();}catch(Exception ignored){}});}catch(Exception ignored){}
+        if(rows==entries&&!sortKey.equals("size")&&!sortKey.equals("modified")){
+            JSONArray shown=new JSONArray();int first=items.getFirstVisiblePosition(),count=Math.max(12,items.getChildCount());for(int i=Math.max(0,first);i<Math.min(visible.size(),Math.max(0,first)+count);i++)shown.put(visible.get(i));rows=shown;
+        }
+        boolean needed=false;for(int i=0;i<rows.length();i++)if(!rows.optJSONObject(i).optBoolean("directory")&&!rows.optJSONObject(i).optBoolean("sizeExact")){needed=true;break;}if(!needed)return;
+        if(metadataPending){metadataRetry=true;return;}metadataPending=true;final JSONArray requestedRows=rows;
+        state().workers.execute(()->{try{for(int i=0;i<requestedRows.length();i++){
+            if(closed||paused||generation!=request)return;JSONObject entry=requestedRows.optJSONObject(i);if(entry.optBoolean("directory")||entry.optBoolean("sizeExact"))continue;
+            try{JSONObject updated=new RemoteClient(selected).stat(entry);ui.post(()->{if(closed||generation!=request)return;try{synchronized(entry){entry.put("size",updated.optLong("size")).put("modified",updated.optLong("modified")).put("metadataKnown",true).put("sizeExact",true);}metadataChanged();}catch(Exception ignored){}});}catch(Exception ignored){}
         }}finally{ui.post(()->{metadataPending=false;if(metadataRetry&&!closed&&!paused&&account!=null){metadataRetry=false;metadata(entries,generation,account);}});}});
     }
     private void toggleView(){cards=!cards;getPreferences(0).edit().putBoolean("cards",cards).apply();fileAdapter.notifyDataSetChanged();}
-    private void chooseSort(){String[] labels={"Nazwa ↑","Nazwa ↓","Rozmiar ↑","Rozmiar ↓","Data ↑","Data ↓","Format ↑","Format ↓"};String[] keys={"name","size","modified","ext"};new AlertDialog.Builder(this).setTitle("Sortowanie — foldery zawsze pierwsze").setItems(labels,(d,index)->{sortKey=keys[index/2];descending=index%2==1;getPreferences(0).edit().putString("sort",sortKey).putBoolean("descending",descending).apply();render();}).show();}
+    private void chooseSort(){String[] labels={"Nazwa ↑","Nazwa ↓","Rozmiar ↑","Rozmiar ↓","Data ↑","Data ↓","Format ↑","Format ↓"};String[] keys={"name","size","modified","ext"};new AlertDialog.Builder(this).setTitle("Sortowanie — foldery zawsze pierwsze").setItems(labels,(d,index)->{sortKey=keys[index/2];descending=index%2==1;getPreferences(0).edit().putString("sort",sortKey).putBoolean("descending",descending).apply();render();if(account!=null)metadata(entries,generation,account);}).show();}
     private void searchDialog(){EditText field=new EditText(this);field.setSingleLine(true);field.setText(query);new AlertDialog.Builder(this).setTitle("Filtruj folder").setView(field).setNegativeButton("Anuluj",null).setPositiveButton("Szukaj",(d,w)->{query=field.getText().toString().toLowerCase(Locale.ROOT);render();}).show();}
     private JSONObject folderEntry(String target){JSONObject row=new JSONObject();try{row.put("path",target).put("name",target).put("directory",true);}catch(Exception ignored){}return row;}
     private void folderActions(){if(account==null)return;new AlertDialog.Builder(this).setTitle(path).setItems(new String[]{library.favorite(account,path,true)?"Usuń zakładkę folderu":"Dodaj zakładkę folderu","Ustaw jako startowy","Startuj od ostatnio otwartego","Zakładki i ulubione"},(d,index)->{if(index==0)library.toggle(account,folderEntry(path),true);if(index==1)library.start(account,path);if(index==2)library.start(account,"");if(index==3)savedLocations();}).show();}
-    private void browserOptions(){new AlertDialog.Builder(this).setTitle("Przeglądarka").setItems(new String[]{"Zakładki i ulubione",slides?"Wyłącz pokaz klatek":"Włącz pokaz klatek","Pobieranie","Szukaj w folderze","Liczba klatek podglądu: "+thumbnails.frameCount()},(d,index)->{if(index==0)savedLocations();if(index==1){slides=!slides;getPreferences(0).edit().putBoolean("slides",slides).apply();refreshImages();}if(index==2)downloads();if(index==3)searchDialog();if(index==4)previewSettings();}).show();}
-    private void setPreviewCount(int count){count=VideoThumbnails.normalizeCount(count);getPreferences(0).edit().putInt("previewFrames",count).apply();thumbnails.setFrameCount(count);slideFrame=0;refreshImages();}
+    private void browserOptions(){new AlertDialog.Builder(this).setTitle("Przeglądarka").setItems(new String[]{"Zakładki i ulubione",slides?"Wyłącz pokaz klatek":"Włącz pokaz klatek","Pobieranie","Szukaj w folderze",(thumbnails.frameCount()==0?"Podglądy: wyłączone":"Liczba klatek podglądu: "+thumbnails.frameCount())},(d,index)->{if(index==0)savedLocations();if(index==1){slides=!slides;getPreferences(0).edit().putBoolean("slides",slides).apply();refreshImages();restartSlideshow();}if(index==2)downloads();if(index==3)searchDialog();if(index==4)previewSettings();}).show();}
+    private void setPreviewCount(int count){count=VideoThumbnails.normalizeCount(count);getPreferences(0).edit().putInt("previewFrames",count).apply();thumbnails.setFrameCount(count);slideFrame=0;refreshImages();restartSlideshow();scheduleVisibleWork();}
     private void previewSettings(){
-        String[] labels={"1 — statyczna miniatura","3 klatki","5 klatek","10 klatek","20 klatek"};int selected=0;for(int i=0;i<VideoThumbnails.FRAME_COUNTS.length;i++)if(VideoThumbnails.FRAME_COUNTS[i]==thumbnails.frameCount())selected=i;
+        String[] labels={"Wyłączone — bez generowania i wczytywania","1 — statyczna miniatura","3 klatki","5 klatek","10 klatek","20 klatek"};int selected=0;for(int i=0;i<VideoThumbnails.FRAME_COUNTS.length;i++)if(VideoThumbnails.FRAME_COUNTS[i]==thumbnails.frameCount())selected=i;
         new AlertDialog.Builder(this).setTitle("Liczba klatek podglądu").setSingleChoiceItems(labels,selected,(dialog,index)->{setPreviewCount(VideoThumbnails.FRAME_COUNTS[index]);dialog.dismiss();}).setNegativeButton("Anuluj",null).show();
     }
     private void entryActions(JSONObject entry){boolean folder=entry.optBoolean("directory");new AlertDialog.Builder(this).setTitle(entry.optString("name")).setItems(folder?new String[]{"Otwórz","Dodaj/usuń zakładkę","Ustaw jako startowy"}:new String[]{"Otwórz / odtwórz","Pobierz plik",library.favorite(account,entry.optString("path"),false)?"Usuń z ulubionych":"Dodaj do ulubionych"},(d,index)->{if(index==0)open(entry);if(index==1){if(folder)library.toggle(account,entry,true);else requestDownload(entry);}if(index==2){if(folder)library.start(account,entry.optString("path"));else {library.toggle(account,entry,false);render();}}}).show();}
@@ -292,8 +321,8 @@ public final class MainActivity extends Activity {
     }}
     private void startDownload(android.net.Uri destination){Intent service=new Intent(this,DownloadService.class).putExtra("account",pendingDownloadAccount).putExtra("entry",pendingDownload.toString()).putExtra("destination",destination.toString());if(Build.VERSION.SDK_INT>=26)startForegroundService(service);else startService(service);pendingDownload=null;}
     private void downloads(){try{JSONArray rows=new JSONArray(getSharedPreferences("downloads",0).getString("history","[]"));ArrayList<String> lines=new ArrayList<>();for(int i=0;i<rows.length();i++){JSONObject row=rows.getJSONObject(i);lines.add(row.optString("name")+"\n"+row.optString("result"));}new AlertDialog.Builder(this).setTitle("Historia pobierania").setItems(lines.isEmpty()?new String[]{"Brak zakończonych pobrań. Postęp bieżącego jest w powiadomieniu."}:lines.toArray(new String[0]),(dialog,index)->{JSONObject row=rows.optJSONObject(index);if(row!=null)new AlertDialog.Builder(this).setTitle(row.optString("name")).setMessage(row.optString("result")+"\n"+row.optString("uri")).setPositiveButton("OK",null).show();}).setPositiveButton("OK",null).show();}catch(Exception ignored){}}
-    @Override protected void onResume(){super.onResume();paused=false;ui.removeCallbacks(slideshow);ui.post(slideshow);if(fileAdapter!=null)fileAdapter.notifyDataSetChanged();if(account!=null&&entries.length()>0)metadata(entries,generation,account);}
-    @Override protected void onPause(){paused=true;ui.removeCallbacks(slideshow);if(thumbnails!=null)thumbnails.cancel();super.onPause();}
+    @Override protected void onResume(){super.onResume();paused=false;restartSlideshow();scheduleVisibleWork();if(metadataDirty)ui.post(metadataFlush);if(fileAdapter!=null)fileAdapter.notifyDataSetChanged();if(account!=null&&entries.length()>0)metadata(entries,generation,account);}
+    @Override protected void onPause(){paused=true;ui.removeCallbacks(slideshow);ui.removeCallbacks(visibleWork);if(thumbnails!=null)thumbnails.cancel();super.onPause();}
     void up() { if(path.equals("/")) return; int slash=path.lastIndexOf('/'); navigate(slash<=0?"/":path.substring(0,slash)); }
     void toast(String message) { Toast.makeText(this,message,Toast.LENGTH_LONG).show(); }
     @Override public boolean onKeyDown(int key,KeyEvent event){if(key==KeyEvent.KEYCODE_MENU&&items!=null){int selected=items.getSelectedItemPosition();if(selected>=0&&selected<visible.size()){entryActions(visible.get(selected));return true;}}return super.onKeyDown(key,event);}

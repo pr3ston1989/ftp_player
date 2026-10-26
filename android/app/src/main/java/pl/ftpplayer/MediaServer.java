@@ -9,8 +9,8 @@ import java.util.concurrent.ConcurrentHashMap;
 final class MediaServer extends NanoHTTPD {
     private final Map<String,Source> sources=new ConcurrentHashMap<>();
     private static final class Source {
-        final RemoteClient client; final JSONObject entry; final boolean preview; long used; long nextRead;
-        synchronized int allowance(int length) throws IOException {if(!preview)return length;if(used>=128L*1024*1024)throw new IOException("Thumbnail transfer limit");return (int)Math.min(length,128L*1024*1024-used);}
+        final RemoteClient client; final JSONObject entry; final boolean preview; long used; long nextRead; volatile boolean canceled;
+        synchronized int allowance(int length) throws IOException {if(canceled)throw new IOException("Thumbnail canceled");if(!preview)return length;if(used>=128L*1024*1024)throw new IOException("Thumbnail transfer limit");return (int)Math.min(length,128L*1024*1024-used);}
         synchronized void count(int length) throws IOException {if(preview&&length>0){used+=length;long now=android.os.SystemClock.elapsedRealtime();nextRead=Math.max(nextRead,now)+(length*1000L)/(4*1024*1024);try{Thread.sleep(Math.max(0,nextRead-now));}catch(InterruptedException error){Thread.currentThread().interrupt();throw new InterruptedIOException();}}}
         Source(RemoteClient client, JSONObject entry,boolean preview) { this.client=client; this.entry=entry; this.preview=preview; }
     }
@@ -24,7 +24,7 @@ final class MediaServer extends NanoHTTPD {
         return "http://127.0.0.1:"+getListeningPort()+"/"+token+"/"+android.net.Uri.encode(entry.getString("name"));
     }
     long previewUsage(String url){String[] parts=java.net.URI.create(url).getPath().split("/");Source source=sources.get(parts[1]);return source==null?0:source.used;}
-    void unregister(String url){if(url!=null){String[] parts=java.net.URI.create(url).getPath().split("/");sources.remove(parts[1]);}}
+    void unregister(String url){if(url!=null){String[] parts=java.net.URI.create(url).getPath().split("/");Source source=sources.remove(parts[1]);if(source!=null)source.canceled=true;}}
     @Override public Response serve(IHTTPSession session) {
         String[] parts=session.getUri().split("/");
         Source source=parts.length>1?sources.get(parts[1]):null;

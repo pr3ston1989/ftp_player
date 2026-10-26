@@ -110,7 +110,7 @@ class App(tk.Tk):
         self.after(450, lambda: (splash.destroy(), self.deiconify()))
         self.config_obj = Settings()
         self.library = Library()
-        self.thumbnail_cache = ThumbnailCache(frame_count=self.config_obj.get('preview_frames', 10))
+        self.thumbnail_cache = ThumbnailCache(frame_count=self.config_obj.get('preview_frames', 1))
         self._thumb_workers = ThreadPoolExecutor(max_workers=1, thread_name_prefix='thumbnail')
         self._thumb_pending = set()
         self._thumb_images = {}
@@ -190,8 +190,8 @@ class App(tk.Tk):
         ttk.Checkbutton(sorting, text='Malejąco', variable=self.sort_desc, command=self.render).pack(side='left', padx=12)
         self.show_slides = tk.BooleanVar(value=True)
         ttk.Checkbutton(sorting, text='Pokaz slajdów', variable=self.show_slides).pack(side='right')
-        self.preview_count = tk.StringVar(value=str(self.thumbnail_cache.frame_count))
-        count = ttk.Combobox(sorting, state='readonly', textvariable=self.preview_count, values=FRAME_COUNTS, width=3)
+        self.preview_count = tk.StringVar(value=str(self.thumbnail_cache.frame_count) if self.thumbnail_cache.frame_count else 'Wył.')
+        count = ttk.Combobox(sorting, state='readonly', textvariable=self.preview_count, values=('Wył.',)+tuple(FRAME_COUNTS[1:]), width=4)
         count.pack(side='right', padx=4); count.bind('<<ComboboxSelected>>', lambda e: self.change_preview_count())
         ttk.Label(sorting, text='Klatki:', style='Muted.TLabel').pack(side='right')
         browser = ttk.Frame(main); browser.pack(fill='both', expand=True)
@@ -392,7 +392,7 @@ class App(tk.Tk):
         return width, round(width*9/16)
 
     def change_preview_count(self):
-        value = int(self.preview_count.get())
+        value = 0 if self.preview_count.get() == 'Wył.' else int(self.preview_count.get())
         self.config_obj['preview_frames'] = value
         self.config_obj.save()
         self.thumbnail_cache = ThumbnailCache(frame_count=value)
@@ -497,7 +497,7 @@ class App(tk.Tk):
         if self._closed:
             return
         self._slide_frame = (self._slide_frame + 1) % 60
-        if self.account:
+        if self.account and self.thumbnail_cache.frame_count:
             generation, account = self._generation, self.account
             visible = {self.tree.identify_row(y) for y in range(5, self.tree.winfo_height(), 32)} if self.view.get() == 'Szczegóły' else set(self._tile_nodes)
             for id in visible:

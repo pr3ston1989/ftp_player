@@ -63,9 +63,10 @@ def test_thumbnail_cache_signature_and_reuse(tmp_path):
     assert cache.key(account,entry) != key
 
 
-def test_thumbnail_positions_cover_ten_segments():
-    assert FRAME_FRACTIONS == tuple((i + .5) / 10 for i in range(10))
-    assert FRAME_FRACTIONS[0] == .05 and FRAME_FRACTIONS[-1] == .95
+def test_thumbnail_positions_cover_ten_segments(tmp_path):
+    assert FRAME_COUNT == 1 and FRAME_FRACTIONS == (.5,)
+    cache = ThumbnailCache(tmp_path, frame_count=10)
+    assert cache.fractions == tuple((i + .5) / 10 for i in range(10))
 
 
 def test_configurable_preview_counts_have_separate_complete_caches(tmp_path):
@@ -76,12 +77,24 @@ def test_configurable_preview_counts_have_separate_complete_caches(tmp_path):
     for count in FRAME_COUNTS:
         cache = ThumbnailCache(tmp_path, frame_count=count)
         assert len(cache.fractions) == count
-        assert abs(cache.fractions[0] - .5 / count) < .00001
+        if count:
+            assert abs(cache.fractions[0] - .5 / count) < .00001
         key = cache.key(account, entry)
         assert key not in keys
         keys.add(key)
         for index in range(count):
             Image.new('RGB',(32,18),(index*10,20,30)).save(tmp_path/f'{key}-{index}.jpg')
         assert len(cache.create(account,entry,'invalid://must-not-open')) == count
-    assert preview_count('bad') == 10 and preview_count(-1) == 10
+    assert preview_count('bad') == 1 and preview_count(-1) == 1
     assert preview_count('5') == 5
+
+
+def test_disabled_previews_never_open_decoder_or_return_cache(tmp_path, monkeypatch):
+    cache = ThumbnailCache(tmp_path, frame_count=0)
+    account = Account('off','Off','https://server/')
+    entry = MediaFile('movie.mp4','/movie.mp4',100,modified=1)
+    def unexpected(*args, **kwargs):
+        raise AssertionError('Disabled previews started a decoder')
+    monkeypatch.setattr('subprocess.Popen', unexpected)
+    assert cache.cached(account,entry) == []
+    assert cache.create(account,entry,'invalid://must-not-open') == []

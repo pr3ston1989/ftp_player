@@ -162,7 +162,7 @@ public class PlayerSmokeTest {
             Thread.sleep(200);
         }
         assertNotNull("No thumbnails: "+(selected==null?"no selected video":selected.toString())+"; "+((VideoThumbnails)thumbsField.get(browser)).debug(),frames);assertEquals(10,frames.length);
-        VideoThumbnails decoded=(VideoThumbnails)thumbsField.get(browser);if(decoded.lastDuration>20000){for(int i=0;i<10;i++)assertEquals("Frame position "+i,VideoThumbnails.fraction(i),decoded.lastSampleTimes[i]/(float)decoded.lastDuration,.035f);assertTrue(decoded.lastTransferBytes<selected.optLong("size"));}
+        VideoThumbnails decoded=(VideoThumbnails)thumbsField.get(browser);if(decoded.lastDuration>20000){for(int i=0;i<10;i++)assertEquals("Frame position "+i,VideoThumbnails.fraction(i,10),decoded.lastSampleTimes[i]/(float)decoded.lastDuration,.035f);assertTrue(decoded.lastTransferBytes<selected.optLong("size"));}
         System.out.println("Thumbnail payload="+decoded.lastTransferBytes+", duration="+decoded.lastDuration+", sample times="+java.util.Arrays.toString(decoded.lastSampleTimes));
         java.util.Set<Integer> colors=new java.util.HashSet<>();for(int x=0;x<320;x+=10)for(int y=0;y<180;y+=10)colors.add(frames[0].getPixel(x,y));assertTrue("Thumbnail is blank",colors.size()>8);
         int changedPixels=0;for(int x=0;x<frames[0].getWidth();x+=5)for(int y=0;y<frames[0].getHeight();y+=5)if(frames[0].getPixel(x,y)!=frames[9].getPixel(x,y))changedPixels++;assertTrue("Slideshow frames are identical",changedPixels>8);
@@ -175,7 +175,7 @@ public class PlayerSmokeTest {
         while(reused==null&&android.os.SystemClock.elapsedRealtime()<deadline){reused=((VideoThumbnails)thumbsField.get(again)).get(profile,selected);Thread.sleep(150);}
         assertNotNull("Disk cache was not reused",reused);assertEquals(cachedAt,new File(directory,key+"-9.jpg").lastModified());
         JSONObject changed=new JSONObject(selected.toString()).put("modified",selected.optLong("modified")+1000);assertNotEquals(key,((VideoThumbnails)thumbsField.get(again)).key(profile,changed));
-        for(int i=0;i<10;i++)assertEquals((i+.5f)/10,VideoThumbnails.fraction(i),.0001f);
+        for(int i=0;i<10;i++)assertEquals((i+.5f)/10,VideoThumbnails.fraction(i,10),.0001f);
         getInstrumentation().runOnMainSync(again::finish);
     }
     @Test public void testPreviewCountSettingsPersistAndGenerate() throws Exception {
@@ -186,7 +186,7 @@ public class PlayerSmokeTest {
         getInstrumentation().runOnMainSync(()->{try{query.set(browser,"sample.mp4");render.invoke(browser);}catch(Exception error){throw new RuntimeException(error);}});
         JSONObject entry=null;JSONArray listed=(JSONArray)rows.get(browser);for(int i=0;i<listed.length();i++)if(listed.getJSONObject(i).optString("name").equals("sample.mp4"))entry=listed.getJSONObject(i);assertNotNull(entry);
         java.util.Set<String> keys=new java.util.HashSet<>();
-        for(int count:VideoThumbnails.FRAME_COUNTS){getInstrumentation().runOnMainSync(()->{try{setting.invoke(browser,count);}catch(Exception error){throw new RuntimeException(error);}});VideoThumbnails manager=(VideoThumbnails)thumbs.get(browser);assertEquals(count,manager.frameCount());assertEquals(count,context.getSharedPreferences("MainActivity",0).getInt("previewFrames",0));assertTrue(keys.add(manager.key(profile,entry)));assertEquals(.5f/count,VideoThumbnails.fraction(0,count),.0001f);}
+        for(int count:VideoThumbnails.FRAME_COUNTS){getInstrumentation().runOnMainSync(()->{try{setting.invoke(browser,count);}catch(Exception error){throw new RuntimeException(error);}});VideoThumbnails manager=(VideoThumbnails)thumbs.get(browser);assertEquals(count,manager.frameCount());assertEquals(count,context.getSharedPreferences("MainActivity",0).getInt("previewFrames",0));assertTrue(keys.add(manager.key(profile,entry)));if(count>0)assertEquals(.5f/count,VideoThumbnails.fraction(0,count),.0001f);}
         for(int count:new int[]{1,20}){
             getInstrumentation().runOnMainSync(()->{try{setting.invoke(browser,count);}catch(Exception error){throw new RuntimeException(error);}});
             VideoThumbnails manager=(VideoThumbnails)thumbs.get(browser);android.graphics.Bitmap[] images=null;long deadline=android.os.SystemClock.elapsedRealtime()+90000;
@@ -194,6 +194,34 @@ public class PlayerSmokeTest {
         }
         getInstrumentation().runOnMainSync(browser::finish);
         MainActivity again=(MainActivity)getInstrumentation().startActivitySync(new Intent(context,MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));assertEquals(20,((VideoThumbnails)thumbs.get(again)).frameCount());getInstrumentation().runOnMainSync(again::finish);
+    }
+    @Test public void testLargeFolderRenderBudget() throws Exception {
+        Context context=getInstrumentation().getTargetContext();new AccountStore(context).save(new JSONArray());
+        MainActivity browser=(MainActivity)getInstrumentation().startActivitySync(new Intent(context,MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+        JSONArray files=new JSONArray();for(int i=0;i<3000;i++){int n=(i*7919)%3000;files.put(new JSONObject().put("name","Video "+n+" sample.mkv").put("path","/large/"+n+".mkv").put("size",1000+n).put("metadataKnown",true).put("sizeExact",true));}
+        java.lang.reflect.Field entries=MainActivity.class.getDeclaredField("entries");entries.setAccessible(true);java.lang.reflect.Method render=MainActivity.class.getDeclaredMethod("render");render.setAccessible(true);
+        long[] timing=new long[3];for(int i=0;i<timing.length;i++){final int index=i;getInstrumentation().runOnMainSync(()->{try{entries.set(browser,files);long start=android.os.SystemClock.elapsedRealtime();render.invoke(browser);timing[index]=android.os.SystemClock.elapsedRealtime()-start;}catch(Exception error){throw new RuntimeException(error);}});}
+        java.lang.reflect.Field visible=MainActivity.class.getDeclaredField("visible");visible.setAccessible(true);long ready=android.os.SystemClock.elapsedRealtime()+5000;while(((java.util.List<?>)visible.get(browser)).size()!=3000&&android.os.SystemClock.elapsedRealtime()<ready)Thread.sleep(50);assertEquals(3000,((java.util.List<?>)visible.get(browser)).size());
+        getInstrumentation().runOnMainSync(browser::finish);System.out.println("Large folder render ms="+java.util.Arrays.toString(timing));
+        android.os.Bundle metrics=new android.os.Bundle();metrics.putString("large_folder_render_ms",java.util.Arrays.toString(timing));getInstrumentation().sendStatus(2,metrics);
+        long worst=0;for(long value:timing)worst=Math.max(worst,value);assertTrue("3000-file main-thread render took "+worst+" ms",worst<300);
+    }
+    @Test public void testDefaultSingleAndDisabledPersist() throws Exception {
+        Context context=getInstrumentation().getTargetContext();new AccountStore(context).save(new JSONArray());context.getSharedPreferences("MainActivity",0).edit().remove("previewFrames").commit();
+        MainActivity browser=(MainActivity)getInstrumentation().startActivitySync(new Intent(context,MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));java.lang.reflect.Field thumbs=MainActivity.class.getDeclaredField("thumbnails");thumbs.setAccessible(true);assertEquals(1,((VideoThumbnails)thumbs.get(browser)).frameCount());
+        java.lang.reflect.Method setting=MainActivity.class.getDeclaredMethod("setPreviewCount",int.class);setting.setAccessible(true);getInstrumentation().runOnMainSync(()->{try{setting.invoke(browser,0);}catch(Exception error){throw new RuntimeException(error);}});getInstrumentation().runOnMainSync(browser::finish);
+        MainActivity again=(MainActivity)getInstrumentation().startActivitySync(new Intent(context,MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));assertEquals(0,((VideoThumbnails)thumbs.get(again)).frameCount());getInstrumentation().runOnMainSync(again::finish);
+    }
+    @Test public void testPreviewTransferComparisonAndDisabled() throws Exception {
+        Context context=getInstrumentation().getTargetContext();new AccountStore(context).save(new JSONArray());
+        MainActivity browser=(MainActivity)getInstrumentation().startActivitySync(new Intent(context,MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+        java.util.concurrent.atomic.AtomicReference<VideoThumbnails> holder=new java.util.concurrent.atomic.AtomicReference<>();getInstrumentation().runOnMainSync(()->holder.set(new VideoThumbnails(browser,new android.view.TextureView(browser),()->{})));VideoThumbnails manager=holder.get();
+        JSONObject profile=account("http"),entry=null;JSONArray files=new RemoteClient(profile).list("/");for(int i=0;i<files.length();i++)if(files.getJSONObject(i).optString("name").equals("bitrate-8mbps.mp4"))entry=new RemoteClient(profile).stat(files.getJSONObject(i));assertNotNull(entry);
+        final JSONObject source=new JSONObject(entry.toString()).put("modified",System.currentTimeMillis());long[] bytes=new long[2];int slot=0;
+        for(int count:new int[]{1,10}){getInstrumentation().runOnMainSync(()->{manager.setFrameCount(count);manager.request(profile,source);});long deadline=android.os.SystemClock.elapsedRealtime()+90000;android.graphics.Bitmap[] frames=null;while(frames==null&&android.os.SystemClock.elapsedRealtime()<deadline){frames=manager.get(profile,source);Thread.sleep(150);}assertNotNull(frames);assertEquals(count,frames.length);bytes[slot++]=manager.lastTransferBytes;}
+        getInstrumentation().runOnMainSync(()->{manager.setFrameCount(0);manager.request(profile,source);});Thread.sleep(300);assertNull(manager.get(profile,source));java.lang.reflect.Field pending=VideoThumbnails.class.getDeclaredField("pending");pending.setAccessible(true);assertTrue(((java.util.Set<?>)pending.get(manager)).isEmpty());
+        System.out.println("Preview transfer 1="+bytes[0]+", 10="+bytes[1]+", saving="+(100*(1-bytes[0]/(double)bytes[1]))+"%");assertTrue(bytes[0]>0&&bytes[0]<bytes[1]);
+        getInstrumentation().runOnMainSync(()->{manager.close();browser.finish();});
     }
     @Test public void testAuthenticatedFtpDownload() throws Exception {
         Context context=getInstrumentation().getTargetContext();JSONObject profile=account("ftp");new AccountStore(context).save(new JSONArray().put(profile));
