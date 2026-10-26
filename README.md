@@ -29,6 +29,11 @@ są filtrowane i sortowane w tle, a podglądy powstają po zatrzymaniu przewijan
 kosztownego przewijania od początku; zwykłe odtwarzanie działa jak dotychczas.
 Szczegóły aktualizacji: [RELEASE_1.1.3.md](RELEASE_1.1.3.md).
 
+Aktualizacja Android/TV **1.1.4** poprawia powiadomienia pobierania: procenty i bajty
+podczas transferu, statyczna ikona po zakończeniu oraz otwieranie pliku w domyślnej
+aplikacji. Zapisane pliki można otwierać także z historii pobierania.
+Szczegóły: [RELEASE_1.1.4.md](RELEASE_1.1.4.md).
+
 ## FTP czy HTTPS?
 
 | Dostęp | Kiedy wybrać | Wymagania |

@@ -45,6 +45,7 @@ public final class MainActivity extends Activity {
     }
     @Override public void onCreate(Bundle saved) {
         setTheme(R.style.AppTheme); super.onCreate(saved);
+        state().workers.execute(()->DownloadService.repairCompletedNotifications(getApplicationContext()));
         tv=(getResources().getConfiguration().uiMode&Configuration.UI_MODE_TYPE_MASK)==Configuration.UI_MODE_TYPE_TELEVISION;
         library=new LibraryStore(this);sortKey=getPreferences(0).getString("sort","name");descending=getPreferences(0).getBoolean("descending",false);slides=getPreferences(0).getBoolean("slides",true);cards=getPreferences(0).getBoolean("cards",false);
         if(saved!=null){pendingDownloadAccount=saved.getString("downloadAccount","");try{String data=saved.getString("download");if(data!=null)pendingDownload=new JSONObject(data);}catch(Exception ignored){}}
@@ -162,7 +163,7 @@ public final class MainActivity extends Activity {
                 JSONArray proposed=new JSONArray(); for(int i=0;i<accounts.length();i++) if(!accounts.optJSONObject(i).optString("id").equals(account.optString("id"))) proposed.put(accounts.optJSONObject(i));
                 if(save(proposed)) { generation++; account=null; entries=new JSONArray(); refreshAccounts(); render(); location.setText("Wybierz serwer"); }
             }).show();
-            if(index==3) new AlertDialog.Builder(this).setTitle("FTP Player 1.1.3").setMessage("FTP / FTPS / HTTPS index of\nWbudowany libVLC: wideo i audio.\nSterowanie dotykiem i pilotem TV.\nHasła: Android Keystore.\nNie każdy profil 4K ma sprzętowy dekoder na każdym urządzeniu.").setPositiveButton("OK",null).show();
+            if(index==3) new AlertDialog.Builder(this).setTitle("FTP Player 1.1.4").setMessage("FTP / FTPS / HTTPS index of\nWbudowany libVLC: wideo i audio.\nSterowanie dotykiem i pilotem TV.\nHasła: Android Keystore.\nNie każdy profil 4K ma sprzętowy dekoder na każdym urządzeniu.").setPositiveButton("OK",null).show();
         }).show();
     }
     private void editAccount(JSONObject current) {
@@ -320,7 +321,7 @@ public final class MainActivity extends Activity {
         startDownload(data.getData());toast("Rozpoczęto pobieranie. Postęp jest w powiadomieniu.");
     }}
     private void startDownload(android.net.Uri destination){Intent service=new Intent(this,DownloadService.class).putExtra("account",pendingDownloadAccount).putExtra("entry",pendingDownload.toString()).putExtra("destination",destination.toString());if(Build.VERSION.SDK_INT>=26)startForegroundService(service);else startService(service);pendingDownload=null;}
-    private void downloads(){try{JSONArray rows=new JSONArray(getSharedPreferences("downloads",0).getString("history","[]"));ArrayList<String> lines=new ArrayList<>();for(int i=0;i<rows.length();i++){JSONObject row=rows.getJSONObject(i);lines.add(row.optString("name")+"\n"+row.optString("result"));}new AlertDialog.Builder(this).setTitle("Historia pobierania").setItems(lines.isEmpty()?new String[]{"Brak zakończonych pobrań. Postęp bieżącego jest w powiadomieniu."}:lines.toArray(new String[0]),(dialog,index)->{JSONObject row=rows.optJSONObject(index);if(row!=null)new AlertDialog.Builder(this).setTitle(row.optString("name")).setMessage(row.optString("result")+"\n"+row.optString("uri")).setPositiveButton("OK",null).show();}).setPositiveButton("OK",null).show();}catch(Exception ignored){}}
+    private void downloads(){try{JSONArray rows=new JSONArray(getSharedPreferences("downloads",0).getString("history","[]"));ArrayList<String> lines=new ArrayList<>();for(int i=0;i<rows.length();i++){JSONObject row=rows.getJSONObject(i);lines.add(row.optString("name")+"\n"+row.optString("result"));}new AlertDialog.Builder(this).setTitle("Historia pobierania").setItems(lines.isEmpty()?new String[]{"Brak zakończonych pobrań. Postęp bieżącego jest w powiadomieniu."}:lines.toArray(new String[0]),(dialog,index)->{JSONObject row=rows.optJSONObject(index);if(row!=null)new AlertDialog.Builder(this).setTitle(row.optString("name")).setMessage(row.optString("result")+"\n"+row.optString("uri")).setPositiveButton(row.optString("result").equals("Zapisano plik")?"Otwórz":"OK",(d,w)->{if(row.optString("result").equals("Zapisano plik"))startActivity(new Intent(this,OpenDownloadActivity.class).setData(android.net.Uri.parse(row.optString("uri"))).putExtra("name",row.optString("name")));}).setNegativeButton("Zamknij",null).show();}).setPositiveButton("OK",null).show();}catch(Exception ignored){}}
     @Override protected void onResume(){super.onResume();paused=false;restartSlideshow();scheduleVisibleWork();if(metadataDirty)ui.post(metadataFlush);if(fileAdapter!=null)fileAdapter.notifyDataSetChanged();if(account!=null&&entries.length()>0)metadata(entries,generation,account);}
     @Override protected void onPause(){paused=true;ui.removeCallbacks(slideshow);ui.removeCallbacks(visibleWork);if(thumbnails!=null)thumbnails.cancel();super.onPause();}
     void up() { if(path.equals("/")) return; int slash=path.lastIndexOf('/'); navigate(slash<=0?"/":path.substring(0,slash)); }

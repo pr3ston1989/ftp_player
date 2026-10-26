@@ -5,13 +5,20 @@ from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 import threading
 import os
 import re
+import time
 from pyftpdlib.authorizers import DummyAuthorizer
 from pyftpdlib.handlers import FTPHandler
 from pyftpdlib.servers import FTPServer
 
 root = Path(__file__).resolve().parents[1] / '_testdata'
+root.mkdir(exist_ok=True)
+progress_file = root / 'download-progress.bin'
+if not progress_file.exists():progress_file.write_bytes(bytes(range(256))*8192)
 class RangeHandler(SimpleHTTPRequestHandler):
     def send_head(self):
+        self.slow=self.path.startswith('/slow/');self.truncated=self.path.startswith('/truncated/')
+        if self.slow:self.path=self.path[len('/slow'):]
+        if self.truncated:self.path=self.path[len('/truncated'):]
         if self.path.startswith('/no-range/'):
             self.path = self.path[len('/no-range'):]
             if 'Range' in self.headers: del self.headers['Range']
@@ -33,11 +40,13 @@ class RangeHandler(SimpleHTTPRequestHandler):
 
     def copyfile(self, source, outputfile):
         remaining = self.remaining
+        if self.truncated:remaining=65536
         try:
             while remaining is None or remaining > 0:
                 data = source.read(65536 if remaining is None else min(65536, remaining))
                 if not data: break
                 outputfile.write(data)
+                if self.slow:outputfile.flush();time.sleep(len(data)/(256*1024))
                 if remaining is not None: remaining -= len(data)
         except (BrokenPipeError, ConnectionResetError):
             pass
