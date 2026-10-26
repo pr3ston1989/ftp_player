@@ -2,8 +2,10 @@
 
 ## Przeglądanie i podglądy
 
-- Trzy klatki z okolic 32%, 50% i 70% filmu, z niewielkim deterministycznym
-  przesunięciem, zapisane jako osobne obrazy 16:9. Pokaz slajdów można wyłączyć.
+- Trzy klatki zapisane jako osobne obrazy 16:9. Windows pobiera je z okolic
+  32%, 50% i 70% filmu; Android wykonuje jeden skok w okolice środka i pobiera
+  trzy kolejne ujęcia (bez problematycznych wielokrotnych skoków w starszych AVI).
+  Początek ma niewielkie deterministyczne przesunięcie. Pokaz slajdów można wyłączyć.
 - Cache rozróżnia serwer, konto, ścieżkę, rozmiar i datę modyfikacji. Zmieniony
   plik otrzymuje nowy podgląd. Gdy serwer nie podaje daty, obowiązuje ograniczony TTL.
 - Windows: FFmpeg/ffprobe, limit cache 256 MB. Android: pojedynczy cichy dekoder
@@ -46,3 +48,15 @@
 - `android/.../VideoThumbnails.java` — asynchroniczny dekoder i cache klatek.
 - `android/.../DownloadService.java`, `AndroidManifest.xml` — pobieranie w tle.
 - `tests/test_library.py`, `test_transport.py`, `androidTest/.../PlayerSmokeTest.java` — regresje.
+
+## Weryfikacja wydania
+
+- 22 testy Python: FTP/HTTP Range, szyfrowanie kont, metadane, sortowanie i zapisy.
+- 12 testów na fizycznym Mi 9: 9 próbek kontenerów/kodeków (w tym MOV, DivX,
+  Xvid, WMV, MPEG-2, RM i HEVC Main10), zdjęcia, widok kart, orientacja pozioma,
+  pobieranie z uwierzytelnionego FTP, walidacja ścieżek i trzy różne klatki AVI.
+- Ponowne otwarcie miniaturek sprawdza cache dyskowy bez ponownego zapisu klatek.
+- Windows: sprawdzone przełączanie pięciu widoków i klawiatura; gotowy runtime
+  przechodzi kontrolę Tk/Pillow/libmpv i importu aplikacji bez instalowania Pythona.
+- Test nawigacji TV wykonany w wariancie TV na Mi 9; fizyczny Mi Box nie był
+  dostępny w tym cyklu.

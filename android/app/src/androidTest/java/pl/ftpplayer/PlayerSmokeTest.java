@@ -155,6 +155,7 @@ public class PlayerSmokeTest {
         }
         assertNotNull("No thumbnails: "+(selected==null?"no selected video":selected.toString())+"; "+((VideoThumbnails)thumbsField.get(browser)).debug(),frames);assertEquals(3,frames.length);
         java.util.Set<Integer> colors=new java.util.HashSet<>();for(int x=0;x<320;x+=10)for(int y=0;y<180;y+=10)colors.add(frames[0].getPixel(x,y));assertTrue("Thumbnail is blank",colors.size()>8);
+        int changedPixels=0;for(int x=0;x<320;x+=10)for(int y=0;y<180;y+=10)if(frames[0].getPixel(x,y)!=frames[2].getPixel(x,y))changedPixels++;assertTrue("Slideshow frames are identical",changedPixels>8);
         File directory=new File(context.getCacheDir(),"video-thumbnails-v1");String key=((VideoThumbnails)thumbsField.get(browser)).key(profile,selected);assertTrue(new File(directory,key+"-2.jpg").isFile());
         long cachedAt=new File(directory,key+"-2.jpg").lastModified();
         getInstrumentation().runOnMainSync(browser::finish);

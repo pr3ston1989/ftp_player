@@ -34,7 +34,7 @@ final class VideoThumbnails {
     VideoThumbnails(Activity activity,TextureView texture,Runnable changed) {
         this.activity=activity;this.texture=texture;this.changed=changed;directory=new File(activity.getCacheDir(),"video-thumbnails-v1");directory.mkdirs();
     }
-    String key(JSONObject account,JSONObject entry) { return LibraryStore.hash(LibraryStore.key(account)+":"+entry.optString("path")+":"+entry.optLong("size")+":"+entry.optLong("modified")+":v2"); }
+    String key(JSONObject account,JSONObject entry) { return LibraryStore.hash(LibraryStore.key(account)+":"+entry.optString("path")+":"+entry.optLong("size")+":"+entry.optLong("modified")+":v3"); }
     Bitmap[] get(JSONObject account,JSONObject entry) { return memory.get(key(account,entry)); }
     void request(JSONObject account,JSONObject entry) {
         String key=key(account,entry);
@@ -74,9 +74,10 @@ final class VideoThumbnails {
             }
             long duration=player.getLength();
             if(duration<=0){ui.postDelayed(this,150);return;}
-            float fraction=new float[]{.32f,.5f,.7f}[frame]+((current.key.hashCode()&255)/255f-.5f)*.06f;
+            // Jeden skok: starsze demuksery AVI potrafią utknąć przy kolejnych seekach.
+            float fraction=.45f+((current.key.hashCode()&255)/255f-.5f)*.06f;
             if(!seeking){if(!player.isPlaying())player.play();player.setTime((long)(duration*fraction));seeking=true;captureAt=SystemClock.elapsedRealtime()+650;}
-            else if(SystemClock.elapsedRealtime()>=captureAt && Math.abs(player.getTime()/(float)duration-fraction)<.2f){
+            else if(SystemClock.elapsedRealtime()>=captureAt && player.getTime()>0){
                 Bitmap bitmap=texture.getBitmap(640,360);
                 if(bitmap!=null){
                     captured[frame]=bitmap;final Job job=current;final int index=frame;
@@ -87,7 +88,7 @@ final class VideoThumbnails {
                         if(success&&!temp.renameTo(target))success=false;temp.delete();final boolean ok=success;
                         ui.post(()-> {if(current!=job||closed)return;if(!ok){finish(false);return;}saved++;if(saved==3)finish(true);});
                     });
-                    frame++;seeking=false;
+                    frame++;captureAt=SystemClock.elapsedRealtime()+700;
                     if(frame==3){player.pause();return;}
                 }
             }
