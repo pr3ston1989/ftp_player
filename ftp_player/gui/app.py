@@ -13,7 +13,7 @@ import io
 import math
 from datetime import datetime
 from ..core.library import Library, sort_entries
-from ..services.thumbnails import ThumbnailCache
+from ..services.thumbnails import ThumbnailCache, FRAME_COUNTS
 
 from ..core.accounts import AccountStore, data_dir
 from ..core.models import Account
@@ -110,7 +110,7 @@ class App(tk.Tk):
         self.after(450, lambda: (splash.destroy(), self.deiconify()))
         self.config_obj = Settings()
         self.library = Library()
-        self.thumbnail_cache = ThumbnailCache()
+        self.thumbnail_cache = ThumbnailCache(frame_count=self.config_obj.get('preview_frames', 10))
         self._thumb_workers = ThreadPoolExecutor(max_workers=1, thread_name_prefix='thumbnail')
         self._thumb_pending = set()
         self._thumb_images = {}
@@ -189,7 +189,11 @@ class App(tk.Tk):
         self.sort_desc = tk.BooleanVar(value=self.config_obj.get('sort_desc', False))
         ttk.Checkbutton(sorting, text='Malejąco', variable=self.sort_desc, command=self.render).pack(side='left', padx=12)
         self.show_slides = tk.BooleanVar(value=True)
-        ttk.Checkbutton(sorting, text='Pokaz 10 klatek', variable=self.show_slides).pack(side='right')
+        ttk.Checkbutton(sorting, text='Pokaz slajdów', variable=self.show_slides).pack(side='right')
+        self.preview_count = tk.StringVar(value=str(self.thumbnail_cache.frame_count))
+        count = ttk.Combobox(sorting, state='readonly', textvariable=self.preview_count, values=FRAME_COUNTS, width=3)
+        count.pack(side='right', padx=4); count.bind('<<ComboboxSelected>>', lambda e: self.change_preview_count())
+        ttk.Label(sorting, text='Klatki:', style='Muted.TLabel').pack(side='right')
         browser = ttk.Frame(main); browser.pack(fill='both', expand=True)
         self.tree = ttk.Treeview(browser, columns=('kind', 'size', 'ext', 'date'), show='tree headings', selectmode='browse')
         self.tree.heading('#0', text='Nazwa pliku'); self.tree.heading('kind', text='Typ'); self.tree.heading('size', text='Rozmiar')
@@ -387,6 +391,17 @@ class App(tk.Tk):
         width = widths.get(self.view.get(), 96)
         return width, round(width*9/16)
 
+    def change_preview_count(self):
+        value = int(self.preview_count.get())
+        self.config_obj['preview_frames'] = value
+        self.config_obj.save()
+        self.thumbnail_cache = ThumbnailCache(frame_count=value)
+        self._thumb_images.clear(); self._thumb_paths.clear()
+        if self.account:
+            self.navigate(self.path)
+        else:
+            self.render()
+
     def change_view(self):
         self.config_obj['view'] = self.view.get()
         self._thumb_images.clear()
@@ -420,7 +435,7 @@ class App(tk.Tk):
                 image=canvas.create_image(x+width/2+7,y+height/2+7,tags=tags)
                 self._tile_nodes[entry.id]=image
                 if entry.id in self._thumb_images:
-                    canvas.itemconfigure(image,image=self._thumb_images[entry.id][self._slide_frame if self.show_slides.get() else 0])
+                    canvas.itemconfigure(image,image=self._thumb_images[entry.id][self._slide_frame % len(self._thumb_images[entry.id]) if self.show_slides.get() else 0])
                 else:
                     canvas.create_text(x+width/2+7,y+height/2+7,text='▸' if entry.directory else '▶' if entry.kind=='video' else '♫' if entry.kind=='audio' else '▧',fill='#22d3ee',font=('Segoe UI',32),tags=tags)
                 text=entry.name
@@ -481,7 +496,7 @@ class App(tk.Tk):
     def _thumbnail_tick(self):
         if self._closed:
             return
-        self._slide_frame = (self._slide_frame + 1) % 10
+        self._slide_frame = (self._slide_frame + 1) % 60
         if self.account:
             generation, account = self._generation, self.account
             visible = {self.tree.identify_row(y) for y in range(5, self.tree.winfo_height(), 32)} if self.view.get() == 'Szczegóły' else set(self._tile_nodes)
@@ -490,7 +505,7 @@ class App(tk.Tk):
                 if entry is None or entry.kind != 'video':
                     continue
                 if id in self._thumb_images:
-                    frame = self._slide_frame if self.show_slides.get() else 0
+                    frame = self._slide_frame % len(self._thumb_images[id]) if self.show_slides.get() else 0
                     if self.view.get() == 'Szczegóły':
                         self.tree.item(id, image=self._thumb_images[id][frame])
                     elif id in self._tile_nodes:

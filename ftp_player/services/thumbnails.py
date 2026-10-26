@@ -13,11 +13,24 @@ from ..core.library import server_key
 
 
 FRAME_COUNT = 10
+FRAME_COUNTS = (1, 3, 5, 10, 20)
+
+
+def preview_count(value):
+    """Normalize a persisted or user-selected thumbnail count."""
+    try:
+        value = int(value)
+    except (TypeError, ValueError):
+        return FRAME_COUNT
+    return value if value in FRAME_COUNTS else FRAME_COUNT
+
 FRAME_FRACTIONS = tuple((index + .5) / FRAME_COUNT for index in range(FRAME_COUNT))
 
 
 class ThumbnailCache:
-    def __init__(self, directory=None, limit=256 * 1024 * 1024):
+    def __init__(self, directory=None, limit=256 * 1024 * 1024, frame_count=FRAME_COUNT):
+        self.frame_count = preview_count(frame_count)
+        self.fractions = tuple((i + .5) / self.frame_count for i in range(self.frame_count))
         self.directory = Path(directory or data_dir() / 'thumbnails')
         self.directory.mkdir(parents=True, exist_ok=True)
         self.limit = limit
@@ -26,11 +39,13 @@ class ThumbnailCache:
 
     def key(self, account, entry):
         stamp = f'{server_key(account)}:{entry.path}:{entry.size}:{entry.modified}:ten-v1'
+        if self.frame_count != FRAME_COUNT:
+            stamp += f':{self.frame_count}'
         return sha256(stamp.encode()).hexdigest()
 
     def cached(self, account, entry):
         key = self.key(account, entry)
-        paths = [self.directory / f'{key}-{index}.jpg' for index in range(FRAME_COUNT)]
+        paths = [self.directory / f'{key}-{index}.jpg' for index in range(self.frame_count)]
         # Serwery bez mtime nie dają pewnej sygnatury zmiany: ograniczony TTL.
         ttl = 30 * 86400 if entry.modified else 7 * 86400
         if all(p.is_file() and time.time() - p.stat().st_mtime < ttl for p in paths):
@@ -64,7 +79,7 @@ class ThumbnailCache:
                 if duration <= 0:
                     return []
                 paths = []
-                for index, fraction in enumerate(FRAME_FRACTIONS):
+                for index, fraction in enumerate(self.fractions):
                     if cancelled():
                         return []
                     target = self.directory / f'{key}-{index}.jpg'

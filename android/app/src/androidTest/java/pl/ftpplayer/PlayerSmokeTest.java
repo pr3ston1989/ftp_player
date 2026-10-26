@@ -150,7 +150,7 @@ public class PlayerSmokeTest {
     }
     @Test public void testTenDistributedCachedVideoFrames() throws Exception {
         Context context=getInstrumentation().getTargetContext();JSONObject profile=account("http");new AccountStore(context).save(new JSONArray().put(profile));
-        context.getSharedPreferences("MainActivity",0).edit().putString("sort","name").putBoolean("descending",false).commit();
+        context.getSharedPreferences("MainActivity",0).edit().putString("sort","name").putBoolean("descending",false).putInt("previewFrames",10).commit();
         MainActivity browser=(MainActivity)getInstrumentation().startActivitySync(new Intent(context,MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
         java.lang.reflect.Field rowsField=MainActivity.class.getDeclaredField("entries"), thumbsField=MainActivity.class.getDeclaredField("thumbnails");rowsField.setAccessible(true);thumbsField.setAccessible(true);
         long deadline=android.os.SystemClock.elapsedRealtime()+150000;android.graphics.Bitmap[] frames=null;JSONObject selected=null;boolean scrolled=false;
@@ -178,6 +178,23 @@ public class PlayerSmokeTest {
         for(int i=0;i<10;i++)assertEquals((i+.5f)/10,VideoThumbnails.fraction(i),.0001f);
         getInstrumentation().runOnMainSync(again::finish);
     }
+    @Test public void testPreviewCountSettingsPersistAndGenerate() throws Exception {
+        Context context=getInstrumentation().getTargetContext();JSONObject profile=account("http");new AccountStore(context).save(new JSONArray().put(profile));
+        MainActivity browser=(MainActivity)getInstrumentation().startActivitySync(new Intent(context,MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));Thread.sleep(1200);
+        java.lang.reflect.Field thumbs=MainActivity.class.getDeclaredField("thumbnails"),rows=MainActivity.class.getDeclaredField("entries"),query=MainActivity.class.getDeclaredField("query");thumbs.setAccessible(true);rows.setAccessible(true);query.setAccessible(true);
+        java.lang.reflect.Method setting=MainActivity.class.getDeclaredMethod("setPreviewCount",int.class),render=MainActivity.class.getDeclaredMethod("render");setting.setAccessible(true);render.setAccessible(true);
+        getInstrumentation().runOnMainSync(()->{try{query.set(browser,"sample.mp4");render.invoke(browser);}catch(Exception error){throw new RuntimeException(error);}});
+        JSONObject entry=null;JSONArray listed=(JSONArray)rows.get(browser);for(int i=0;i<listed.length();i++)if(listed.getJSONObject(i).optString("name").equals("sample.mp4"))entry=listed.getJSONObject(i);assertNotNull(entry);
+        java.util.Set<String> keys=new java.util.HashSet<>();
+        for(int count:VideoThumbnails.FRAME_COUNTS){getInstrumentation().runOnMainSync(()->{try{setting.invoke(browser,count);}catch(Exception error){throw new RuntimeException(error);}});VideoThumbnails manager=(VideoThumbnails)thumbs.get(browser);assertEquals(count,manager.frameCount());assertEquals(count,context.getSharedPreferences("MainActivity",0).getInt("previewFrames",0));assertTrue(keys.add(manager.key(profile,entry)));assertEquals(.5f/count,VideoThumbnails.fraction(0,count),.0001f);}
+        for(int count:new int[]{1,20}){
+            getInstrumentation().runOnMainSync(()->{try{setting.invoke(browser,count);}catch(Exception error){throw new RuntimeException(error);}});
+            VideoThumbnails manager=(VideoThumbnails)thumbs.get(browser);android.graphics.Bitmap[] images=null;long deadline=android.os.SystemClock.elapsedRealtime()+90000;
+            while(images==null&&android.os.SystemClock.elapsedRealtime()<deadline){images=manager.get(profile,entry);Thread.sleep(150);}assertNotNull("Missing "+count+" preview frames",images);assertEquals(count,images.length);
+        }
+        getInstrumentation().runOnMainSync(browser::finish);
+        MainActivity again=(MainActivity)getInstrumentation().startActivitySync(new Intent(context,MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));assertEquals(20,((VideoThumbnails)thumbs.get(again)).frameCount());getInstrumentation().runOnMainSync(again::finish);
+    }
     @Test public void testAuthenticatedFtpDownload() throws Exception {
         Context context=getInstrumentation().getTargetContext();JSONObject profile=account("ftp");new AccountStore(context).save(new JSONArray().put(profile));
         Activity browser=getInstrumentation().startActivitySync(new Intent(context,MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));Thread.sleep(900);
@@ -203,7 +220,7 @@ public class PlayerSmokeTest {
     }
     @Test public void testFullWidthCardsKeepAspectRatio() throws Exception {
         Context context=getInstrumentation().getTargetContext();JSONObject profile=account("http");new AccountStore(context).save(new JSONArray().put(profile));
-        context.getSharedPreferences("MainActivity",0).edit().putString("sort","name").putBoolean("descending",false).commit();
+        context.getSharedPreferences("MainActivity",0).edit().putString("sort","name").putBoolean("descending",false).putInt("previewFrames",10).commit();
         MainActivity browser=(MainActivity)getInstrumentation().startActivitySync(new Intent(context,MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));Thread.sleep(1200);
         java.lang.reflect.Field cards=MainActivity.class.getDeclaredField("cards"),type=MainActivity.class.getDeclaredField("kind"),listField=MainActivity.class.getDeclaredField("items");cards.setAccessible(true);type.setAccessible(true);listField.setAccessible(true);
         java.lang.reflect.Method render=MainActivity.class.getDeclaredMethod("render");render.setAccessible(true);

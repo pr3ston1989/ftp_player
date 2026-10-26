@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ftp-player"
-version = "1.1.1"
+version = "1.1.2"
 description = "Private media browser for FTP, FTPS and HTTPS servers"
 requires-python = ">=3.10"
 dependencies = ["requests>=2.28", "Pillow>=10", "mpv>=1.0", "pillow-heif>=0.18"]

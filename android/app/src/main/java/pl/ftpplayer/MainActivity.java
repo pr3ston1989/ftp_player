@@ -30,7 +30,7 @@ public final class MainActivity extends Activity {
     private JSONObject pendingDownload;
     private int slideFrame;
     private static final class Row { int type;ImageView thumbnail;TextView symbol,title,info;JSONObject entry; }
-    private final Runnable slideshow=new Runnable(){public void run(){if(closed||paused)return;slideFrame=(slideFrame+1)%VideoThumbnails.FRAME_COUNT;refreshImages();ui.postDelayed(this,1100);}};
+    private final Runnable slideshow=new Runnable(){public void run(){if(closed||paused)return;slideFrame=(slideFrame+1)%60;refreshImages();ui.postDelayed(this,1100);}};
     AppState state() { return (AppState)getApplication(); }
     int dp(int n) { return Math.round(n*getResources().getDisplayMetrics().density); }
     TextView text(String s,int size,int color) { TextView v=new TextView(this); v.setText(s); v.setTextSize(size); v.setTextColor(color); v.setGravity(Gravity.CENTER_VERTICAL); return v; }
@@ -64,7 +64,7 @@ public final class MainActivity extends Activity {
         LinearLayout root=new LinearLayout(this);root.setOrientation(wide?0:1);root.setPadding(dp(wide?12:16),dp(compact?6:12),dp(wide?12:16),dp(compact?4:10));root.setBackgroundColor(BG);
         FrameLayout stage=new FrameLayout(this);setContentView(stage);
         TextureView preview=new TextureView(this);stage.addView(preview,new FrameLayout.LayoutParams(dp(320),dp(180)));stage.addView(root,new FrameLayout.LayoutParams(-1,-1));
-        thumbnails=new VideoThumbnails(this,preview,this::refreshImages);
+        thumbnails=new VideoThumbnails(this,preview,this::refreshImages);thumbnails.setFrameCount(getPreferences(0).getInt("previewFrames",10));
         LinearLayout side=root;
         if(wide) {
             side=new LinearLayout(this); side.setOrientation(1); root.addView(side,new LinearLayout.LayoutParams(dp(compact?170:230),-1));
@@ -157,7 +157,7 @@ public final class MainActivity extends Activity {
                 JSONArray proposed=new JSONArray(); for(int i=0;i<accounts.length();i++) if(!accounts.optJSONObject(i).optString("id").equals(account.optString("id"))) proposed.put(accounts.optJSONObject(i));
                 if(save(proposed)) { generation++; account=null; entries=new JSONArray(); refreshAccounts(); render(); location.setText("Wybierz serwer"); }
             }).show();
-            if(index==3) new AlertDialog.Builder(this).setTitle("FTP Player 1.1.1").setMessage("FTP / FTPS / HTTPS index of\nWbudowany libVLC: wideo i audio.\nSterowanie dotykiem i pilotem TV.\nHasła: Android Keystore.\nNie każdy profil 4K ma sprzętowy dekoder na każdym urządzeniu.").setPositiveButton("OK",null).show();
+            if(index==3) new AlertDialog.Builder(this).setTitle("FTP Player 1.1.2").setMessage("FTP / FTPS / HTTPS index of\nWbudowany libVLC: wideo i audio.\nSterowanie dotykiem i pilotem TV.\nHasła: Android Keystore.\nNie każdy profil 4K ma sprzętowy dekoder na każdym urządzeniu.").setPositiveButton("OK",null).show();
         }).show();
     }
     private void editAccount(JSONObject current) {
@@ -258,7 +258,12 @@ public final class MainActivity extends Activity {
     private void searchDialog(){EditText field=new EditText(this);field.setSingleLine(true);field.setText(query);new AlertDialog.Builder(this).setTitle("Filtruj folder").setView(field).setNegativeButton("Anuluj",null).setPositiveButton("Szukaj",(d,w)->{query=field.getText().toString().toLowerCase(Locale.ROOT);render();}).show();}
     private JSONObject folderEntry(String target){JSONObject row=new JSONObject();try{row.put("path",target).put("name",target).put("directory",true);}catch(Exception ignored){}return row;}
     private void folderActions(){if(account==null)return;new AlertDialog.Builder(this).setTitle(path).setItems(new String[]{library.favorite(account,path,true)?"Usuń zakładkę folderu":"Dodaj zakładkę folderu","Ustaw jako startowy","Startuj od ostatnio otwartego","Zakładki i ulubione"},(d,index)->{if(index==0)library.toggle(account,folderEntry(path),true);if(index==1)library.start(account,path);if(index==2)library.start(account,"");if(index==3)savedLocations();}).show();}
-    private void browserOptions(){new AlertDialog.Builder(this).setTitle("Przeglądarka").setItems(new String[]{"Zakładki i ulubione",slides?"Wyłącz pokaz klatek":"Włącz pokaz 10 klatek","Pobieranie","Szukaj w folderze"},(d,index)->{if(index==0)savedLocations();if(index==1){slides=!slides;getPreferences(0).edit().putBoolean("slides",slides).apply();refreshImages();}if(index==2)downloads();if(index==3)searchDialog();}).show();}
+    private void browserOptions(){new AlertDialog.Builder(this).setTitle("Przeglądarka").setItems(new String[]{"Zakładki i ulubione",slides?"Wyłącz pokaz klatek":"Włącz pokaz klatek","Pobieranie","Szukaj w folderze","Liczba klatek podglądu: "+thumbnails.frameCount()},(d,index)->{if(index==0)savedLocations();if(index==1){slides=!slides;getPreferences(0).edit().putBoolean("slides",slides).apply();refreshImages();}if(index==2)downloads();if(index==3)searchDialog();if(index==4)previewSettings();}).show();}
+    private void setPreviewCount(int count){count=VideoThumbnails.normalizeCount(count);getPreferences(0).edit().putInt("previewFrames",count).apply();thumbnails.setFrameCount(count);slideFrame=0;refreshImages();}
+    private void previewSettings(){
+        String[] labels={"1 — statyczna miniatura","3 klatki","5 klatek","10 klatek","20 klatek"};int selected=0;for(int i=0;i<VideoThumbnails.FRAME_COUNTS.length;i++)if(VideoThumbnails.FRAME_COUNTS[i]==thumbnails.frameCount())selected=i;
+        new AlertDialog.Builder(this).setTitle("Liczba klatek podglądu").setSingleChoiceItems(labels,selected,(dialog,index)->{setPreviewCount(VideoThumbnails.FRAME_COUNTS[index]);dialog.dismiss();}).setNegativeButton("Anuluj",null).show();
+    }
     private void entryActions(JSONObject entry){boolean folder=entry.optBoolean("directory");new AlertDialog.Builder(this).setTitle(entry.optString("name")).setItems(folder?new String[]{"Otwórz","Dodaj/usuń zakładkę","Ustaw jako startowy"}:new String[]{"Otwórz / odtwórz","Pobierz plik",library.favorite(account,entry.optString("path"),false)?"Usuń z ulubionych":"Dodaj do ulubionych"},(d,index)->{if(index==0)open(entry);if(index==1){if(folder)library.toggle(account,entry,true);else requestDownload(entry);}if(index==2){if(folder)library.start(account,entry.optString("path"));else {library.toggle(account,entry,false);render();}}}).show();}
     private void savedLocations(){
         if(account==null)return;JSONArray folders=library.folders(account),files=library.files(account);ArrayList<String> labels=new ArrayList<>();for(int i=0;i<folders.length();i++)labels.add("▸ "+folders.optString(i));for(int i=0;i<files.length();i++)labels.add("★ "+files.optJSONObject(i).optString("name"));

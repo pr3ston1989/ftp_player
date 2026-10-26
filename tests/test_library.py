@@ -66,3 +66,22 @@ def test_thumbnail_cache_signature_and_reuse(tmp_path):
 def test_thumbnail_positions_cover_ten_segments():
     assert FRAME_FRACTIONS == tuple((i + .5) / 10 for i in range(10))
     assert FRAME_FRACTIONS[0] == .05 and FRAME_FRACTIONS[-1] == .95
+
+
+def test_configurable_preview_counts_have_separate_complete_caches(tmp_path):
+    from ftp_player.services.thumbnails import FRAME_COUNTS, preview_count
+    account = Account('counts','A','https://server/')
+    entry = MediaFile('movie.mov','/movie.mov',100,modified=100)
+    keys = set()
+    for count in FRAME_COUNTS:
+        cache = ThumbnailCache(tmp_path, frame_count=count)
+        assert len(cache.fractions) == count
+        assert abs(cache.fractions[0] - .5 / count) < .00001
+        key = cache.key(account, entry)
+        assert key not in keys
+        keys.add(key)
+        for index in range(count):
+            Image.new('RGB',(32,18),(index*10,20,30)).save(tmp_path/f'{key}-{index}.jpg')
+        assert len(cache.create(account,entry,'invalid://must-not-open')) == count
+    assert preview_count('bad') == 10 and preview_count(-1) == 10
+    assert preview_count('5') == 5
