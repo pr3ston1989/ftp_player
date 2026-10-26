@@ -30,7 +30,7 @@ public final class MainActivity extends Activity {
     private JSONObject pendingDownload;
     private int slideFrame;
     private static final class Row { int type;ImageView thumbnail;TextView symbol,title,info;JSONObject entry; }
-    private final Runnable slideshow=new Runnable(){public void run(){if(closed||paused)return;slideFrame=(slideFrame+1)%3;refreshImages();ui.postDelayed(this,1100);}};
+    private final Runnable slideshow=new Runnable(){public void run(){if(closed||paused)return;slideFrame=(slideFrame+1)%VideoThumbnails.FRAME_COUNT;refreshImages();ui.postDelayed(this,1100);}};
     AppState state() { return (AppState)getApplication(); }
     int dp(int n) { return Math.round(n*getResources().getDisplayMetrics().density); }
     TextView text(String s,int size,int color) { TextView v=new TextView(this); v.setText(s); v.setTextSize(size); v.setTextColor(color); v.setGravity(Gravity.CENTER_VERTICAL); return v; }
@@ -157,7 +157,7 @@ public final class MainActivity extends Activity {
                 JSONArray proposed=new JSONArray(); for(int i=0;i<accounts.length();i++) if(!accounts.optJSONObject(i).optString("id").equals(account.optString("id"))) proposed.put(accounts.optJSONObject(i));
                 if(save(proposed)) { generation++; account=null; entries=new JSONArray(); refreshAccounts(); render(); location.setText("Wybierz serwer"); }
             }).show();
-            if(index==3) new AlertDialog.Builder(this).setTitle("FTP Player 1.1.0").setMessage("FTP / FTPS / HTTPS index of\nWbudowany libVLC: wideo i audio.\nSterowanie dotykiem i pilotem TV.\nHasła: Android Keystore.\nNie każdy profil 4K ma sprzętowy dekoder na każdym urządzeniu.").setPositiveButton("OK",null).show();
+            if(index==3) new AlertDialog.Builder(this).setTitle("FTP Player 1.1.1").setMessage("FTP / FTPS / HTTPS index of\nWbudowany libVLC: wideo i audio.\nSterowanie dotykiem i pilotem TV.\nHasła: Android Keystore.\nNie każdy profil 4K ma sprzętowy dekoder na każdym urządzeniu.").setPositiveButton("OK",null).show();
         }).show();
     }
     private void editAccount(JSONObject current) {
@@ -208,6 +208,7 @@ public final class MainActivity extends Activity {
     }
     private void render() {
         if(items==null) return;
+        int first=items.getFirstVisiblePosition();String anchor=first>=0&&first<visible.size()?visible.get(first).optString("path"):"";int offset=items.getChildCount()>0?items.getChildAt(0).getTop():0;
         visible.clear();
         for(int i=0;i<entries.length();i++) {
             JSONObject entry=entries.optJSONObject(i); String type=kind(entry);
@@ -217,6 +218,7 @@ public final class MainActivity extends Activity {
         LibraryStore.sort(visible,sortKey,descending);
         empty.setText(account==null?"Dodaj serwer przyciskiem ＋":"Brak plików pasujących do filtra");
         fileAdapter.notifyDataSetChanged();
+        for(int i=0;i<visible.size();i++)if(visible.get(i).optString("path").equals(anchor)){items.setSelectionFromTop(i,offset);break;}
     }
     private void open(JSONObject entry) {
         if(entry.optBoolean("directory")) { navigate(entry.optString("path")); return; }
@@ -240,7 +242,7 @@ public final class MainActivity extends Activity {
     private void bindImage(Row row){
         if(account==null||thumbnails==null||!kind(row.entry).equals("video")){row.thumbnail.setImageDrawable(null);row.symbol.setVisibility(View.VISIBLE);return;}
         android.graphics.Bitmap[] frames=thumbnails.get(account,row.entry);
-        if(frames!=null){row.thumbnail.setImageBitmap(frames[slides?slideFrame%3:0]);row.symbol.setVisibility(View.GONE);}
+        if(frames!=null){row.thumbnail.setImageBitmap(frames[slides?slideFrame%frames.length:0]);row.symbol.setVisibility(View.GONE);}
         else{row.thumbnail.setImageDrawable(null);row.symbol.setVisibility(View.VISIBLE);if(row.entry.optBoolean("sizeExact"))thumbnails.request(account,row.entry);}
     }
     private void refreshImages(){if(items==null)return;for(int i=0;i<items.getChildCount();i++){Object tag=items.getChildAt(i).getTag();if(tag instanceof Row)bindImage((Row)tag);}}
@@ -256,7 +258,7 @@ public final class MainActivity extends Activity {
     private void searchDialog(){EditText field=new EditText(this);field.setSingleLine(true);field.setText(query);new AlertDialog.Builder(this).setTitle("Filtruj folder").setView(field).setNegativeButton("Anuluj",null).setPositiveButton("Szukaj",(d,w)->{query=field.getText().toString().toLowerCase(Locale.ROOT);render();}).show();}
     private JSONObject folderEntry(String target){JSONObject row=new JSONObject();try{row.put("path",target).put("name",target).put("directory",true);}catch(Exception ignored){}return row;}
     private void folderActions(){if(account==null)return;new AlertDialog.Builder(this).setTitle(path).setItems(new String[]{library.favorite(account,path,true)?"Usuń zakładkę folderu":"Dodaj zakładkę folderu","Ustaw jako startowy","Startuj od ostatnio otwartego","Zakładki i ulubione"},(d,index)->{if(index==0)library.toggle(account,folderEntry(path),true);if(index==1)library.start(account,path);if(index==2)library.start(account,"");if(index==3)savedLocations();}).show();}
-    private void browserOptions(){new AlertDialog.Builder(this).setTitle("Przeglądarka").setItems(new String[]{"Zakładki i ulubione",slides?"Wyłącz pokaz klatek":"Włącz pokaz 3 klatek","Pobieranie","Szukaj w folderze"},(d,index)->{if(index==0)savedLocations();if(index==1){slides=!slides;getPreferences(0).edit().putBoolean("slides",slides).apply();refreshImages();}if(index==2)downloads();if(index==3)searchDialog();}).show();}
+    private void browserOptions(){new AlertDialog.Builder(this).setTitle("Przeglądarka").setItems(new String[]{"Zakładki i ulubione",slides?"Wyłącz pokaz klatek":"Włącz pokaz 10 klatek","Pobieranie","Szukaj w folderze"},(d,index)->{if(index==0)savedLocations();if(index==1){slides=!slides;getPreferences(0).edit().putBoolean("slides",slides).apply();refreshImages();}if(index==2)downloads();if(index==3)searchDialog();}).show();}
     private void entryActions(JSONObject entry){boolean folder=entry.optBoolean("directory");new AlertDialog.Builder(this).setTitle(entry.optString("name")).setItems(folder?new String[]{"Otwórz","Dodaj/usuń zakładkę","Ustaw jako startowy"}:new String[]{"Otwórz / odtwórz","Pobierz plik",library.favorite(account,entry.optString("path"),false)?"Usuń z ulubionych":"Dodaj do ulubionych"},(d,index)->{if(index==0)open(entry);if(index==1){if(folder)library.toggle(account,entry,true);else requestDownload(entry);}if(index==2){if(folder)library.start(account,entry.optString("path"));else {library.toggle(account,entry,false);render();}}}).show();}
     private void savedLocations(){
         if(account==null)return;JSONArray folders=library.folders(account),files=library.files(account);ArrayList<String> labels=new ArrayList<>();for(int i=0;i<folders.length();i++)labels.add("▸ "+folders.optString(i));for(int i=0;i<files.length();i++)labels.add("★ "+files.optJSONObject(i).optString("name"));

@@ -5,6 +5,8 @@ import mimetypes
 import secrets
 import threading
 import re
+import socket
+import time
 from ..core.remote import RemoteClient
 from ..core.network_traffic import APP_TRAFFIC
 
@@ -21,6 +23,25 @@ def byte_range(header, size):
     if start >= size or end < start or (not match[1] and int(match[2]) == 0):
         raise ValueError('Unsatisfiable range')
     return start, end, True
+
+
+class PreviewBudget:
+    """Cap media payload read for one thumbnail set, including concurrent requests."""
+    def __init__(self, limit=128 * 1024 * 1024):
+        self.limit, self.used = limit, 0
+        self.next_read = time.monotonic()
+        self.lock = threading.Lock()
+
+    def read(self, stream, size):
+        with self.lock:
+            if self.used >= self.limit:
+                raise OSError('Thumbnail transfer limit reached')
+            data = stream.read(min(size, self.limit - self.used))
+            self.used += len(data)
+            # Hamujemy wyłącznie podglądy: ogranicza wyprzedzający odczyt TCP.
+            self.next_read = max(self.next_read, time.monotonic()) + len(data) / (4 * 1024 * 1024)
+            time.sleep(max(0, self.next_read - time.monotonic()))
+            return data
 
 
 class MediaProxy:
@@ -49,7 +70,9 @@ class MediaProxy:
                 if item is None:
                     self.send_error(404)
                     return
-                client, entry = item
+                client, entry, budget = item
+                if budget:
+                    self.connection.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 64 * 1024)
                 headers_sent = False
                 try:
                     size = client.size(entry)
@@ -79,12 +102,12 @@ class MediaProxy:
                     if not body or not size:
                         headers()
                         return
-                    with client.read(entry, start) as stream:
+                    with client.read(entry, start, require_range=budget is not None) as stream:
                         headers()
                         headers_sent = True
                         remaining = end - start + 1
                         while remaining:
-                            data = stream.read(min(256 * 1024, remaining))
+                            data = budget.read(stream, min(64 * 1024, remaining)) if budget else stream.read(min(256 * 1024, remaining))
                             if not data:
                                 break
                             if client.account.scheme in ('ftp', 'ftps'):
@@ -106,13 +129,24 @@ class MediaProxy:
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()
 
-    def register(self, account, entry):
+    def register(self, account, entry, preview=False):
         token = secrets.token_urlsafe(24)
         with self._lock:
-            self._entries[token] = RemoteClient(account), entry
+            self._entries[token] = RemoteClient(account), entry, PreviewBudget() if preview else None
         address = f'http://127.0.0.1:{self.server.server_port}/{token}/{entry.name.rsplit(".", 1)[-1]}'
         entry.url = address
         return address
+
+    def unregister(self, url):
+        token = urlsplit(url).path.split('/')[1]
+        with self._lock:
+            self._entries.pop(token, None)
+
+    def preview_usage(self, url):
+        token = urlsplit(url).path.split('/')[1]
+        with self._lock:
+            source = self._entries.get(token)
+            return source[2].used if source and source[2] else 0
 
     def close(self):
         self.server.shutdown()

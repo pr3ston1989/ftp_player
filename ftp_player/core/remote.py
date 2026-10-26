@@ -227,7 +227,7 @@ class RemoteClient:
             return int(response.headers.get('Content-Length', 0))
 
     @contextmanager
-    def read(self, entry, start=0):
+    def read(self, entry, start=0, require_range=False):
         if self.account.scheme in ('ftp', 'ftps'):
             with self.ftp() as ftp:
                 ftp.voidcmd('TYPE I')
@@ -239,9 +239,11 @@ class RemoteClient:
                 finally:
                     connection.close()
         else:
-            headers = {'Range': f'bytes={start}-', 'Accept-Encoding': 'identity'} if start else {'Accept-Encoding': 'identity'}
+            headers = {'Range': f'bytes={start}-', 'Accept-Encoding': 'identity'} if start or require_range else {'Accept-Encoding': 'identity'}
             with self.http('GET', entry.path, headers=headers, stream=True) as response:
-                if start and response.status_code == 206:
+                if require_range and response.status_code != 206:
+                    raise OSError('Miniatury wymagają HTTP Range; pominięto kosztowny odczyt całego pliku.')
+                if (start or require_range) and response.status_code == 206:
                     if not response.headers.get('Content-Range', '').startswith(f'bytes {start}-'):
                         raise OSError('Serwer zwrócił nieprawidłowy zakres pliku.')
                 elif start:

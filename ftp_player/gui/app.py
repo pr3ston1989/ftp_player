@@ -189,7 +189,7 @@ class App(tk.Tk):
         self.sort_desc = tk.BooleanVar(value=self.config_obj.get('sort_desc', False))
         ttk.Checkbutton(sorting, text='Malejąco', variable=self.sort_desc, command=self.render).pack(side='left', padx=12)
         self.show_slides = tk.BooleanVar(value=True)
-        ttk.Checkbutton(sorting, text='Pokaz 3 klatek', variable=self.show_slides).pack(side='right')
+        ttk.Checkbutton(sorting, text='Pokaz 10 klatek', variable=self.show_slides).pack(side='right')
         browser = ttk.Frame(main); browser.pack(fill='both', expand=True)
         self.tree = ttk.Treeview(browser, columns=('kind', 'size', 'ext', 'date'), show='tree headings', selectmode='browse')
         self.tree.heading('#0', text='Nazwa pliku'); self.tree.heading('kind', text='Typ'); self.tree.heading('size', text='Rozmiar')
@@ -481,7 +481,7 @@ class App(tk.Tk):
     def _thumbnail_tick(self):
         if self._closed:
             return
-        self._slide_frame = (self._slide_frame + 1) % 3
+        self._slide_frame = (self._slide_frame + 1) % 10
         if self.account:
             generation, account = self._generation, self.account
             visible = {self.tree.identify_row(y) for y in range(5, self.tree.winfo_height(), 32)} if self.view.get() == 'Szczegóły' else set(self._tile_nodes)
@@ -499,7 +499,11 @@ class App(tk.Tk):
                 elif entry.size_exact and not self._playing and (generation, id) not in self._thumb_pending:
                     self._thumb_pending.add((generation, id))
                     def work(e=entry, a=account, g=generation):
-                        paths = self.thumbnail_cache.create(a, e, self.proxy.register(a, e), lambda: self._closed or self._playing or g != self._generation)
+                        url = self.proxy.register(a, e, preview=True)
+                        try:
+                            paths = self.thumbnail_cache.create(a, e, url, lambda: self._closed or self._playing or g != self._generation)
+                        finally:
+                            self.proxy.unregister(url)
                         def done():
                             self._thumb_pending.discard((g, e.id))
                             if paths and g == self._generation and not self._closed:

@@ -1,4 +1,4 @@
-"""Bounded, persistent three-frame video previews using the bundled FFmpeg."""
+"""Bounded, persistent ten-frame video previews using the bundled FFmpeg."""
 from pathlib import Path
 from hashlib import sha256
 import json
@@ -12,6 +12,10 @@ from ..core.accounts import data_dir
 from ..core.library import server_key
 
 
+FRAME_COUNT = 10
+FRAME_FRACTIONS = tuple((index + .5) / FRAME_COUNT for index in range(FRAME_COUNT))
+
+
 class ThumbnailCache:
     def __init__(self, directory=None, limit=256 * 1024 * 1024):
         self.directory = Path(directory or data_dir() / 'thumbnails')
@@ -21,12 +25,12 @@ class ThumbnailCache:
         self._failed = {}
 
     def key(self, account, entry):
-        stamp = f'{server_key(account)}:{entry.path}:{entry.size}:{entry.modified}:v2'
+        stamp = f'{server_key(account)}:{entry.path}:{entry.size}:{entry.modified}:ten-v1'
         return sha256(stamp.encode()).hexdigest()
 
     def cached(self, account, entry):
         key = self.key(account, entry)
-        paths = [self.directory / f'{key}-{index}.jpg' for index in range(3)]
+        paths = [self.directory / f'{key}-{index}.jpg' for index in range(FRAME_COUNT)]
         # Serwery bez mtime nie dają pewnej sygnatury zmiany: ograniczony TTL.
         ttl = 30 * 86400 if entry.modified else 7 * 86400
         if all(p.is_file() and time.time() - p.stat().st_mtime < ttl for p in paths):
@@ -46,7 +50,7 @@ class ThumbnailCache:
                 return []
             flags = getattr(subprocess, 'CREATE_NO_WINDOW', 0)
             try:
-                probe = subprocess.Popen([ffprobe, '-v', 'error', '-show_entries', 'format=duration', '-of', 'json', url],
+                probe = subprocess.Popen([ffprobe, '-v', 'error', '-probesize', '262144', '-analyzeduration', '500000', '-show_entries', 'format=duration', '-of', 'json', url],
                                          stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, creationflags=flags)
                 deadline = time.monotonic() + 25
                 while probe.poll() is None:
@@ -59,15 +63,15 @@ class ThumbnailCache:
                 duration = float(json.loads(output)['format']['duration'])
                 if duration <= 0:
                     return []
-                jitter = int(key[:4], 16) / 65535 * .08 - .04
                 paths = []
-                for index, fraction in enumerate((.32 + jitter, .5 + jitter, .7 + jitter)):
+                for index, fraction in enumerate(FRAME_FRACTIONS):
                     if cancelled():
                         return []
                     target = self.directory / f'{key}-{index}.jpg'
                     temporary = target.with_suffix('.tmp.jpg')
                     try:
                         command = [ffmpeg, '-nostdin', '-hide_banner', '-loglevel', 'error', '-y',
+                                   '-probesize', '262144', '-analyzeduration', '500000',
                                    '-ss', str(max(0, duration * fraction)), '-i', url, '-frames:v', '1', '-an', '-sn',
                                    '-vf', 'scale=640:360:force_original_aspect_ratio=decrease,pad=640:360:(ow-iw)/2:(oh-ih)/2',
                                    '-q:v', '4', str(temporary)]

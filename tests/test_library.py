@@ -1,7 +1,7 @@
 from ftp_player.core.models import Account, MediaFile
 from ftp_player.core.library import Library, sort_entries
 from ftp_player.core.remote import index_metadata
-from ftp_player.services.thumbnails import ThumbnailCache
+from ftp_player.services.thumbnails import ThumbnailCache, FRAME_COUNT, FRAME_FRACTIONS
 from PIL import Image
 
 
@@ -53,11 +53,16 @@ def test_thumbnail_cache_signature_and_reuse(tmp_path):
     account=Account('a','A','https://server/')
     entry=MediaFile('movie.mov','/movie.mov',100,modified=100)
     key=cache.key(account,entry)
-    for index in range(3):
-        Image.new('RGB',(320,180),(index*80,20,30)).save(tmp_path/f'{key}-{index}.jpg')
-    assert len(cache.cached(account,entry)) == 3
+    for index in range(FRAME_COUNT):
+        Image.new('RGB',(320,180),(index*20,20,30)).save(tmp_path/f'{key}-{index}.jpg')
+    assert len(cache.cached(account,entry)) == FRAME_COUNT
     # Cache hit must not open a stream or invoke a decoder.
-    assert len(cache.create(account,entry,'invalid://must-not-open')) == 3
+    assert len(cache.create(account,entry,'invalid://must-not-open')) == FRAME_COUNT
     entry.modified=101
     assert not cache.cached(account,entry)
     assert cache.key(account,entry) != key
+
+
+def test_thumbnail_positions_cover_ten_segments():
+    assert FRAME_FRACTIONS == tuple((i + .5) / 10 for i in range(10))
+    assert FRAME_FRACTIONS[0] == .05 and FRAME_FRACTIONS[-1] == .95

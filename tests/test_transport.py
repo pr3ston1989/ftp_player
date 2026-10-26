@@ -121,3 +121,32 @@ def test_autoindex_scope_and_encoded_names():
     client = RemoteClient(Account('id','Test','https://host/base/'))
     assert client.url('/folder with space/') == 'https://host/base/folder%20with%20space/'
     assert client.remote_path('/video.mkv') == '/base/video.mkv'
+
+
+def test_preview_requires_remote_seek_without_changing_playback(remote):
+    account, content = remote
+    entry = RemoteClient(account).list('/')[1]
+    proxy = MediaProxy()
+    try:
+        url = proxy.register(account, entry, preview=True)
+        response = requests.get(url, headers={'Range': 'bytes=100-199'}, timeout=5)
+        if account.scheme == 'http':
+            assert response.status_code == 502
+            assert proxy.preview_usage(url) == 0
+        else:
+            assert response.status_code == 206 and response.content == content[100:200]
+            assert proxy.preview_usage(url) == 100
+    finally:
+        proxy.close()
+
+
+def test_preview_budget_counts_reads_and_stops_at_limit():
+    from io import BytesIO
+    from ftp_player.services.proxy import PreviewBudget
+    budget = PreviewBudget(limit=10)
+    stream = BytesIO(b'0123456789extra')
+    assert budget.read(stream, 8) == b'01234567'
+    assert budget.read(stream, 8) == b'89'
+    assert budget.used == 10
+    with pytest.raises(OSError):
+        budget.read(stream, 1)

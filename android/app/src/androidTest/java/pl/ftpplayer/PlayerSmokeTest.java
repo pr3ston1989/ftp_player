@@ -45,6 +45,12 @@ public class PlayerSmokeTest {
             connection.disconnect();
         }
     }
+    @Test public void testPreviewRejectsServerWithoutRange() throws Exception {
+        JSONObject entry=new JSONObject().put("path","/no-range/sample.mp4");
+        try(InputStream ignored=new RemoteClient(account("http")).read(entry,100,true)) { fail("Preview must not discard the start of a remote file"); }
+        catch(IOException expected) { assertTrue(expected.getMessage().contains("Range")); }
+        try(InputStream playback=new RemoteClient(account("http")).read(entry,100,false)) { assertTrue(playback.read()>=0); }
+    }
     @Test public void testAccountsEncryptedAndEditable() throws Exception {
         AccountStore store=new AccountStore(getInstrumentation().getTargetContext());
         JSONArray rows=new JSONArray().put(account("http")).put(account("ftp")); store.save(rows);
@@ -142,29 +148,34 @@ public class PlayerSmokeTest {
         java.lang.reflect.Field visible=MainActivity.class.getDeclaredField("visible"),items=MainActivity.class.getDeclaredField("items");visible.setAccessible(true);items.setAccessible(true);
         getInstrumentation().runOnMainSync(()->{try{java.util.List<JSONObject> rows=(java.util.List<JSONObject>)visible.get(browser);for(int i=0;i<rows.size();i++)if(path.equals(rows.get(i).optString("path"))){((android.widget.ListView)items.get(browser)).setSelection(i);break;}}catch(Exception error){throw new RuntimeException(error);}});
     }
-    @Test public void testThreeCachedVideoFrames() throws Exception {
+    @Test public void testTenDistributedCachedVideoFrames() throws Exception {
         Context context=getInstrumentation().getTargetContext();JSONObject profile=account("http");new AccountStore(context).save(new JSONArray().put(profile));
+        context.getSharedPreferences("MainActivity",0).edit().putString("sort","name").putBoolean("descending",false).commit();
         MainActivity browser=(MainActivity)getInstrumentation().startActivitySync(new Intent(context,MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
         java.lang.reflect.Field rowsField=MainActivity.class.getDeclaredField("entries"), thumbsField=MainActivity.class.getDeclaredField("thumbnails");rowsField.setAccessible(true);thumbsField.setAccessible(true);
-        long deadline=android.os.SystemClock.elapsedRealtime()+60000;android.graphics.Bitmap[] frames=null;JSONObject selected=null;boolean scrolled=false;
+        long deadline=android.os.SystemClock.elapsedRealtime()+150000;android.graphics.Bitmap[] frames=null;JSONObject selected=null;boolean scrolled=false;
         while(android.os.SystemClock.elapsedRealtime()<deadline&&frames==null){
             JSONArray rows=(JSONArray)rowsField.get(browser);
-            for(int i=0;i<rows.length();i++){JSONObject row=rows.optJSONObject(i);if(MainActivity.kind(row).equals("video")){selected=row;break;}}
-            if(selected!=null){if(!scrolled){showFile(browser,selected.optString("path"));scrolled=true;}frames=((VideoThumbnails)thumbsField.get(browser)).get(profile,selected);}
+            for(int i=0;i<rows.length();i++){JSONObject row=rows.optJSONObject(i);if(row.optString("name").equals(InstrumentationRegistry.getArguments().getString("thumbnailFile","divx.avi"))){selected=row;break;}}
+            if(selected!=null){if(!scrolled||selected.optBoolean("sizeExact")){showFile(browser,selected.optString("path"));scrolled=true;}frames=((VideoThumbnails)thumbsField.get(browser)).get(profile,selected);
+                java.lang.reflect.Field failures=VideoThumbnails.class.getDeclaredField("failed");failures.setAccessible(true);VideoThumbnails manager=(VideoThumbnails)thumbsField.get(browser);if(((java.util.Map<?,?>)failures.get(manager)).containsKey(manager.key(profile,selected)))break;}
             Thread.sleep(200);
         }
-        assertNotNull("No thumbnails: "+(selected==null?"no selected video":selected.toString())+"; "+((VideoThumbnails)thumbsField.get(browser)).debug(),frames);assertEquals(3,frames.length);
+        assertNotNull("No thumbnails: "+(selected==null?"no selected video":selected.toString())+"; "+((VideoThumbnails)thumbsField.get(browser)).debug(),frames);assertEquals(10,frames.length);
+        VideoThumbnails decoded=(VideoThumbnails)thumbsField.get(browser);if(decoded.lastDuration>20000){for(int i=0;i<10;i++)assertEquals("Frame position "+i,VideoThumbnails.fraction(i),decoded.lastSampleTimes[i]/(float)decoded.lastDuration,.035f);assertTrue(decoded.lastTransferBytes<selected.optLong("size"));}
+        System.out.println("Thumbnail payload="+decoded.lastTransferBytes+", duration="+decoded.lastDuration+", sample times="+java.util.Arrays.toString(decoded.lastSampleTimes));
         java.util.Set<Integer> colors=new java.util.HashSet<>();for(int x=0;x<320;x+=10)for(int y=0;y<180;y+=10)colors.add(frames[0].getPixel(x,y));assertTrue("Thumbnail is blank",colors.size()>8);
-        int changedPixels=0;for(int x=0;x<320;x+=10)for(int y=0;y<180;y+=10)if(frames[0].getPixel(x,y)!=frames[2].getPixel(x,y))changedPixels++;assertTrue("Slideshow frames are identical",changedPixels>8);
-        File directory=new File(context.getCacheDir(),"video-thumbnails-v1");String key=((VideoThumbnails)thumbsField.get(browser)).key(profile,selected);assertTrue(new File(directory,key+"-2.jpg").isFile());
-        long cachedAt=new File(directory,key+"-2.jpg").lastModified();
+        int changedPixels=0;for(int x=0;x<frames[0].getWidth();x+=5)for(int y=0;y<frames[0].getHeight();y+=5)if(frames[0].getPixel(x,y)!=frames[9].getPixel(x,y))changedPixels++;assertTrue("Slideshow frames are identical",changedPixels>8);
+        File directory=new File(context.getCacheDir(),"video-thumbnails-v1");String key=((VideoThumbnails)thumbsField.get(browser)).key(profile,selected);assertTrue(new File(directory,key+"-9.jpg").isFile());
+        long cachedAt=new File(directory,key+"-9.jpg").lastModified();
         getInstrumentation().runOnMainSync(browser::finish);
         MainActivity again=(MainActivity)getInstrumentation().startActivitySync(new Intent(context,MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
         Thread.sleep(1000);showFile(again,selected.optString("path"));
         android.graphics.Bitmap[] reused=null;deadline=android.os.SystemClock.elapsedRealtime()+12000;
         while(reused==null&&android.os.SystemClock.elapsedRealtime()<deadline){reused=((VideoThumbnails)thumbsField.get(again)).get(profile,selected);Thread.sleep(150);}
-        assertNotNull("Disk cache was not reused",reused);assertEquals(cachedAt,new File(directory,key+"-2.jpg").lastModified());
+        assertNotNull("Disk cache was not reused",reused);assertEquals(cachedAt,new File(directory,key+"-9.jpg").lastModified());
         JSONObject changed=new JSONObject(selected.toString()).put("modified",selected.optLong("modified")+1000);assertNotEquals(key,((VideoThumbnails)thumbsField.get(again)).key(profile,changed));
+        for(int i=0;i<10;i++)assertEquals((i+.5f)/10,VideoThumbnails.fraction(i),.0001f);
         getInstrumentation().runOnMainSync(again::finish);
     }
     @Test public void testAuthenticatedFtpDownload() throws Exception {
@@ -192,6 +203,7 @@ public class PlayerSmokeTest {
     }
     @Test public void testFullWidthCardsKeepAspectRatio() throws Exception {
         Context context=getInstrumentation().getTargetContext();JSONObject profile=account("http");new AccountStore(context).save(new JSONArray().put(profile));
+        context.getSharedPreferences("MainActivity",0).edit().putString("sort","name").putBoolean("descending",false).commit();
         MainActivity browser=(MainActivity)getInstrumentation().startActivitySync(new Intent(context,MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));Thread.sleep(1200);
         java.lang.reflect.Field cards=MainActivity.class.getDeclaredField("cards"),type=MainActivity.class.getDeclaredField("kind"),listField=MainActivity.class.getDeclaredField("items");cards.setAccessible(true);type.setAccessible(true);listField.setAccessible(true);
         java.lang.reflect.Method render=MainActivity.class.getDeclaredMethod("render");render.setAccessible(true);

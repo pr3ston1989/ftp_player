@@ -60,12 +60,15 @@ final class RemoteClient {
         } catch(Exception error) { try { client.disconnect(); } catch(Exception ignored) {} throw error; }
     }
     HttpURLConnection http(String method, String path, long start) throws Exception {
+        return http(method,path,start,false);
+    }
+    HttpURLConnection http(String method,String path,long start,boolean range) throws Exception {
         HttpURLConnection connection=(HttpURLConnection)url(path).openConnection();
         connection.setRequestMethod(method); connection.setConnectTimeout(15000); connection.setReadTimeout(40000);
         connection.setInstanceFollowRedirects(false); connection.setRequestProperty("Accept-Encoding","identity");
         if (!account.optString("username").isEmpty()) connection.setRequestProperty("Authorization", "Basic " +
             Base64.encodeToString((account.optString("username")+":"+account.optString("password")).getBytes("UTF-8"), Base64.NO_WRAP));
-        if (start>0) connection.setRequestProperty("Range","bytes="+start+"-");
+        if (start>0||range) connection.setRequestProperty("Range","bytes="+start+"-");
         int status=connection.getResponseCode();
         if(status==404||status==410){connection.disconnect();throw new UnavailableException();}
         if (status<200 || status>=300) { connection.disconnect(); throw new IOException("Serwer HTTP: "+status+". Sprawdź adres, login i listę katalogów."); }
@@ -153,6 +156,9 @@ final class RemoteClient {
         try { return Math.max(0,connection.getContentLengthLong()); } finally { connection.disconnect(); }
     }
     InputStream read(JSONObject entry,long start) throws Exception {
+        return read(entry,start,false);
+    }
+    InputStream read(JSONObject entry,long start,boolean requireRange) throws Exception {
         String path=entry.getString("path");
         if(ftpMode()) {
             FTPClient client=ftp(); client.setRestartOffset(start);
@@ -161,10 +167,11 @@ final class RemoteClient {
             catch(Exception error) { client.disconnect(); throw error; }
             return new FilterInputStream(stream) { @Override public void close() throws IOException { try { super.close(); } finally { client.disconnect(); } } };
         }
-        HttpURLConnection connection=http("GET",path,start);
+        HttpURLConnection connection=http("GET",path,start,requireRange);
         InputStream stream=connection.getInputStream();
         try {
-            if(start>0 && connection.getResponseCode()==206 && !connection.getHeaderField("Content-Range").startsWith("bytes "+start+"-")) throw new IOException("Nieprawidłowy zakres");
+            if(requireRange&&connection.getResponseCode()!=206)throw new IOException("Miniatury wymagają HTTP Range");
+            if((start>0||requireRange) && connection.getResponseCode()==206 && !connection.getHeaderField("Content-Range").startsWith("bytes "+start+"-")) throw new IOException("Nieprawidłowy zakres");
             if(start>0 && connection.getResponseCode()!=206) {
                 long remaining=start; byte[] buffer=new byte[65536];
                 while(remaining>0) { int n=stream.read(buffer,0,(int)Math.min(remaining,buffer.length)); if(n<0) throw new EOFException(); remaining-=n; }
