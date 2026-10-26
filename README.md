@@ -15,6 +15,14 @@ Paczki są w [GitHub Releases](https://github.com/pr3ston1989/ftp_player/release
 Po uruchomieniu wybierz **Dodaj serwer**. Wpisz nazwę, pełny adres, login i hasło.
 Konta można później edytować, dodawać i usuwać. Usunięcie konta nie zmienia plików serwera.
 
+Wersja **1.1.0** dodaje cachowane pokazy trzech klatek, sortowanie i metadane,
+listę lub duże karty na Androidzie oraz szczegóły i cztery rozmiary kafelków Windows.
+Na PC widok zmienisz z listy nad plikami lub Ctrl+kółko; kliknięcie nagłówka sortuje kolumnę.
+Na Androidzie użyj **▦**, **Sortuj** i menu **⋯**. Przytrzymanie pliku otwiera
+pobieranie i dodawanie do ulubionych. Przycisk **★** przy ścieżce zarządza folderem
+startowym i zakładkami. Zapisane pozycje są sprawdzane przy otwieraniu.
+Szczegóły i lista plików: [RELEASE_1.1.0.md](RELEASE_1.1.0.md).
+
 ## FTP czy HTTPS?
 
 | Dostęp | Kiedy wybrać | Wymagania |

@@ -56,6 +56,12 @@ def test_list_and_proxy_seek(remote):
     client = RemoteClient(account)
     entries = client.list('/')
     assert [e.name for e in entries] == ['folder ze zdjęciami', 'film test.mkv']
+    metadata = client.stat(entries[1])
+    assert metadata.size == len(content) and metadata.modified > 0 and metadata.metadata_known
+    if account.scheme == 'http':
+        metadata.size = 123
+        metadata.size_exact = False
+        assert client.size(metadata) == len(content)
     assert client.list(entries[0].path)[0].name == 'obraz.jpg'
     file = entries[1]
     proxy = MediaProxy()

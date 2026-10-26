@@ -13,6 +13,7 @@ import java.security.KeyStore;
 
 /** Read-only FTP, explicit FTPS and same-origin HTTPS autoindex transport. */
 final class RemoteClient {
+    static final class UnavailableException extends IOException { UnavailableException(){super("Plik lub folder jest niedostępny");} }
     final JSONObject account;
     final URI base;
     RemoteClient(JSONObject account) throws Exception {
@@ -66,6 +67,7 @@ final class RemoteClient {
             Base64.encodeToString((account.optString("username")+":"+account.optString("password")).getBytes("UTF-8"), Base64.NO_WRAP));
         if (start>0) connection.setRequestProperty("Range","bytes="+start+"-");
         int status=connection.getResponseCode();
+        if(status==404||status==410){connection.disconnect();throw new UnavailableException();}
         if (status<200 || status>=300) { connection.disconnect(); throw new IOException("Serwer HTTP: "+status+". Sprawdź adres, login i listę katalogów."); }
         return connection;
     }
@@ -76,11 +78,11 @@ final class RemoteClient {
             try {
                 FTPFile[] files=client.mlistDir(remotePath(path));
                 if (files==null || !FTPReply.isPositiveCompletion(client.getReplyCode())) files=client.listFiles(remotePath(path));
-                if (!FTPReply.isPositiveCompletion(client.getReplyCode())) throw new IOException("Brak dostępu do katalogu");
+                if (!FTPReply.isPositiveCompletion(client.getReplyCode())) { if(client.getReplyCode()==550)throw new UnavailableException();throw new IOException("Brak dostępu do katalogu"); }
                 if (files!=null) for (FTPFile file:files) {
                     String name=file.getName();
                     if (name.equals(".")||name.equals("..")||file.isSymbolicLink()||name.contains("/")) continue;
-                    rows.add(entry(path,name,file.isDirectory(),file.getSize()));
+                    rows.add(entry(path,name,file.isDirectory(),file.getSize()).put("modified",file.getTimestamp()==null?0:file.getTimestamp().getTimeInMillis()).put("metadataKnown",true).put("sizeExact",true));
                 }
             } finally { client.disconnect(); }
         } else {
@@ -99,7 +101,14 @@ final class RemoteClient {
                     String name=decoded.substring(prefix.length()); boolean folder=name.endsWith("/");
                     if(folder) name=name.substring(0,name.length()-1);
                     if(name.isEmpty()||name.contains("/")||name.equals("..")||!seen.add(name)) continue;
-                    rows.add(entry(path,name,folder,0));
+                    String details="";
+                    if(link.parent()!=null&&link.parent().parent()!=null&&link.parent().parent().tagName().equals("tr"))details=link.parent().parent().text();
+                    else for(org.jsoup.nodes.Node node=link.nextSibling();node!=null;node=node.nextSibling()) {
+                        if(node instanceof Element&&((Element)node).tagName().equals("a"))break;
+                        details+=" "+(node instanceof org.jsoup.nodes.TextNode?((org.jsoup.nodes.TextNode)node).text():node instanceof Element?((Element)node).text():"");
+                    }
+                    long[] metadata=indexMetadata(details);
+                    rows.add(entry(path,name,folder,metadata[0]).put("modified",metadata[1]).put("metadataKnown",metadata[2]>0));
                 }
             } finally { connection.disconnect(); }
         }
@@ -111,8 +120,32 @@ final class RemoteClient {
         String id=account.getString("id")+":"+path;
         return new JSONObject().put("id",id).put("name",name).put("path",safe(path)).put("directory",folder).put("size",size);
     }
+    static long[] indexMetadata(String text) {
+        long date=0,size=0; boolean known=false;
+        java.util.regex.Matcher stamp=java.util.regex.Pattern.compile("(\\d{4}-\\d{2}-\\d{2}[ T]\\d{2}:\\d{2}(?::\\d{2})?|\\d{2}-[A-Za-z]{3}-\\d{4} \\d{2}:\\d{2})").matcher(text);
+        String tail="";
+        if(stamp.find()) {
+            for(String pattern:new String[]{"yyyy-MM-dd HH:mm:ss","yyyy-MM-dd HH:mm","dd-MMM-yyyy HH:mm"}) {
+                try { java.text.SimpleDateFormat parser=new java.text.SimpleDateFormat(pattern,Locale.US);parser.setLenient(false);parser.setTimeZone(TimeZone.getTimeZone("UTC"));date=parser.parse(stamp.group().replace('T',' ')).getTime();break; }catch(Exception ignored){}
+            }
+            tail=text.substring(stamp.end());
+        }
+        java.util.regex.Matcher value=java.util.regex.Pattern.compile("(?<![A-Za-z0-9])(\\d+(?:[.,]\\d+)?)\\s*([KMGTP]?)(?:i?B)?(?:\\s|$)",java.util.regex.Pattern.CASE_INSENSITIVE).matcher(tail);
+        if(value.find()){String unit=value.group(2).toUpperCase(Locale.ROOT);int power=unit.isEmpty()?0:" KMGTP".indexOf(unit);size=(long)(Double.parseDouble(value.group(1).replace(',','.'))*Math.pow(1024,power));known=true;}
+        return new long[]{size,date,known?1:0};
+    }
+    JSONObject stat(JSONObject entry) throws Exception {
+        JSONObject result=new JSONObject(entry.toString());String path=entry.getString("path");
+        if(ftpMode()) {
+            FTPClient client=ftp();try { FTPFile file=client.mlistFile(remotePath(path));if(file==null){FTPFile[] files=client.listFiles(remotePath(path));if(files.length>0)file=files[0];}if(file==null)throw new UnavailableException();result.put("size",file.getSize());result.put("modified",file.getTimestamp()==null?0:file.getTimestamp().getTimeInMillis()); }finally{client.disconnect();}
+        }else{
+            HttpURLConnection connection=http("HEAD",path,0);try {result.put("size",Math.max(0,connection.getContentLengthLong()));result.put("modified",connection.getLastModified());}finally{connection.disconnect();}
+        }
+        result.put("metadataKnown",true);result.put("sizeExact",true);return result;
+    }
     long size(JSONObject entry) throws Exception {
-        if(entry.optLong("size")>0) return entry.optLong("size");
+        if(!ftpMode()&&!entry.optBoolean("sizeExact")){JSONObject fresh=stat(entry);entry.put("size",fresh.optLong("size")).put("modified",fresh.optLong("modified")).put("sizeExact",true);}
+        if(entry.optBoolean("sizeExact")||entry.optLong("size")>0) return entry.optLong("size");
         if(ftpMode()) { FTPClient client=ftp(); try { FTPFile file=client.mlistFile(remotePath(entry.getString("path"))); if(file!=null) return file.getSize();
             FTPFile[] files=client.listFiles(remotePath(entry.getString("path"))); return files.length>0?files[0].getSize():0;
         } finally { client.disconnect(); } }

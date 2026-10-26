@@ -45,6 +45,9 @@ class MediaFile:
     directory: bool = False
     account_id: str = ''
     url: str | None = None
+    modified: float = 0
+    metadata_known: bool = False
+    size_exact: bool = False
 
     @property
     def id(self):

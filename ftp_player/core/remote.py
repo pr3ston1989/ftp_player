@@ -6,6 +6,8 @@ import ftplib
 import posixpath
 import ssl
 import re
+from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 from .models import MediaFile, safe_path
 from .network_traffic import measured_session
 
@@ -14,12 +16,64 @@ class IndexParser(HTMLParser):
     def __init__(self):
         super().__init__(convert_charrefs=True)
         self.links = []
+        self.records = {}
+        self._last = None
+        self._anchor = False
 
     def handle_starttag(self, tag, attrs):
         if tag.lower() == 'a':
             href = dict(attrs).get('href')
             if href:
                 self.links.append(href)
+                self.records.setdefault(href, "")
+                self._last = href
+                self._anchor = True
+
+    def handle_endtag(self, tag):
+        if tag.lower() == 'a':
+            self._anchor = False
+        if tag.lower() == 'tr':
+            self._last = None
+
+    def handle_data(self, data):
+        if self._last and not self._anchor:
+            self.records[self._last] += ' ' + data
+
+
+def index_metadata(text):
+    stamp = re.search(r'(\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}(?::\d{2})?|\d{2}-[A-Za-z]{3}-\d{4} \d{2}:\d{2})', text)
+    modified = 0.0
+    if stamp:
+        for fmt in ('%Y-%m-%d %H:%M:%S', '%Y-%m-%d %H:%M', '%d-%b-%Y %H:%M'):
+            try:
+                modified = datetime.strptime(stamp[0].replace('T', ' '), fmt).replace(tzinfo=timezone.utc).timestamp()
+                break
+            except ValueError:
+                pass
+    tail = text[stamp.end():] if stamp else ''
+    size = re.search(r'(?<!\w)(\d+(?:[.,]\d+)?)\s*([KMGTP]?)(?:i?B)?(?:\s|$)', tail, re.I)
+    amount = int(float(size[1].replace(',', '.')) * 1024 ** (' KMGTP'.index(size[2].upper()) if size[2] else 0)) if size else 0
+    return amount, modified, bool(size)
+
+
+def list_timestamp(line):
+    """Parse common Unix and DOS LIST dates when MLSD is unavailable."""
+    parts = line.split(None, 8)
+    try:
+        if len(parts) == 9 and parts[0][0] in 'd-l':
+            if ':' in parts[7]:
+                now = datetime.now(timezone.utc)
+                stamp = datetime.strptime(f'{parts[5]} {parts[6]} {now.year} {parts[7]}', '%b %d %Y %H:%M').replace(tzinfo=timezone.utc)
+                if stamp.timestamp() > now.timestamp() + 86400:
+                    stamp = stamp.replace(year=stamp.year-1)
+            else:
+                stamp = datetime.strptime(' '.join(parts[5:8]), '%b %d %Y').replace(tzinfo=timezone.utc)
+        else:
+            date = ' '.join(line.split(None, 2)[:2])
+            stamp = datetime.strptime(date, '%m-%d-%y %I:%M%p').replace(tzinfo=timezone.utc)
+        return stamp.strftime('%Y%m%d%H%M%S')
+    except (ValueError, IndexError):
+        return ''
 
 
 class RemoteClient:
@@ -71,7 +125,7 @@ class RemoteClient:
             with self.ftp() as ftp:
                 remote = self.remote_path(path)
                 try:
-                    entries = [(name, facts.get('type') == 'dir', int(facts.get('size', 0)))
+                    entries = [(name, facts.get('type') == 'dir', int(facts.get('size', 0)), facts.get('modify', ''))
                                for name, facts in ftp.mlsd(remote)
                                if facts.get('type') not in ('cdir', 'pdir')]
                 except ftplib.error_perm:
@@ -82,14 +136,21 @@ class RemoteClient:
                     for line in lines:
                         match = re.match(r'^([d\-l])\S*\s+\d+\s+\S+\s+\S+\s+(\d+)\s+\S+\s+\S+\s+\S+\s+(.+)$', line)
                         if match and match[1] != 'l':
-                            entries.append((match[3], match[1] == 'd', int(match[2])))
+                            entries.append((match[3], match[1] == 'd', int(match[2]), list_timestamp(line)))
                         else:
                             dos = re.match(r'^\S+\s+\S+\s+(<DIR>|\d+)\s+(.+)$', line)
                             if dos:
-                                entries.append((dos[2], dos[1] == '<DIR>', 0 if dos[1] == '<DIR>' else int(dos[1])))
-                for name, directory, size in entries:
+                                entries.append((dos[2], dos[1] == '<DIR>', 0 if dos[1] == '<DIR>' else int(dos[1]), list_timestamp(line)))
+                for name, directory, size, modified in entries:
                     if name not in ('.', '..') and '/' not in name and '\\' not in name:
-                        rows.append(MediaFile(name, safe_path(posixpath.join(path, name)), size, directory, self.account.id))
+                        stamp = 0
+                        if modified:
+                            try:
+                                stamp = datetime.strptime(modified[:14], '%Y%m%d%H%M%S').replace(tzinfo=timezone.utc).timestamp()
+                            except ValueError:
+                                pass
+                        rows.append(MediaFile(name, safe_path(posixpath.join(path, name)), size, directory, self.account.id,
+                                              modified=stamp, metadata_known=True, size_exact=True))
         else:
             directory_path = path.rstrip('/') + '/'
             with self.http('GET', directory_path, stream=True) as response:
@@ -114,11 +175,48 @@ class RemoteClient:
                     if not name or '/' in name or name in ('.', '..') or name in seen:
                         continue
                     seen.add(name)
-                    rows.append(MediaFile(name, safe_path(posixpath.join(path, name)), 0,
-                                          address.path.endswith('/'), self.account.id))
+                    size, modified, known = index_metadata(parser.records.get(link, ''))
+                    rows.append(MediaFile(name, safe_path(posixpath.join(path, name)), size,
+                                          address.path.endswith('/'), self.account.id, modified=modified, metadata_known=known))
         return sorted(rows, key=lambda row: (not row.directory, row.name.casefold()))
 
+    def stat(self, entry):
+        """Refresh authoritative metadata and fail if the remote file is unavailable."""
+        if self.account.scheme in ('ftp', 'ftps'):
+            with self.ftp() as ftp:
+                ftp.voidcmd('TYPE I')
+                entry.size = int(ftp.size(self.remote_path(entry.path)) or 0)
+                try:
+                    value = ftp.sendcmd('MDTM ' + self.remote_path(entry.path))[4:18]
+                    entry.modified = datetime.strptime(value, '%Y%m%d%H%M%S').replace(tzinfo=timezone.utc).timestamp()
+                except (ValueError, ftplib.error_perm):
+                    pass
+        else:
+            with self.http('HEAD', entry.path) as response:
+                length = response.headers.get('Content-Length')
+                if length is not None:
+                    entry.size = int(length)
+                    entry.size_exact = True
+                else:
+                    entry.size_exact = False
+                stamp = response.headers.get('Last-Modified')
+                if stamp:
+                    try:
+                        entry.modified = parsedate_to_datetime(stamp).timestamp()
+                    except (ValueError, TypeError):
+                        pass
+        entry.metadata_known = True
+        if self.account.scheme in ('ftp', 'ftps'):
+            entry.size_exact = True
+        return entry
+
     def size(self, entry):
+        # Rozmiary K/M/G z autoindeksu są zaokrąglone. Nigdy nie używamy ich
+        # jako Content-Length/Content-Range odtwarzacza.
+        if self.account.scheme not in ('ftp', 'ftps'):
+            if not entry.size_exact:
+                self.stat(entry)
+            return entry.size if entry.size_exact else 0
         if entry.size:
             return entry.size
         if self.account.scheme in ('ftp', 'ftps'):

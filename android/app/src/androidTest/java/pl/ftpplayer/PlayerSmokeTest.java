@@ -15,11 +15,16 @@ import java.util.concurrent.atomic.AtomicReference;
 /** Local fixture tests on an emulator, including the embedded VLC boundary. */
 public class PlayerSmokeTest {
     android.app.Instrumentation getInstrumentation() { return InstrumentationRegistry.getInstrumentation(); }
-    private String originalProfiles;
+    private String originalProfiles,originalDownloads;
+    private java.util.Map<String,?> originalBrowser;
     @Before public void preserveProfiles() {
+        originalBrowser=getInstrumentation().getTargetContext().getSharedPreferences("MainActivity",0).getAll();
+        originalDownloads=getInstrumentation().getTargetContext().getSharedPreferences("downloads",0).getString("history","[]");
         originalProfiles=getInstrumentation().getTargetContext().getSharedPreferences("accounts",0).getString("profiles","[]");
     }
     @After public void restoreProfiles() {
+        if(originalBrowser!=null){android.content.SharedPreferences.Editor edit=getInstrumentation().getTargetContext().getSharedPreferences("MainActivity",0).edit().clear();for(java.util.Map.Entry<String,?> entry:originalBrowser.entrySet()){Object v=entry.getValue();if(v instanceof String)edit.putString(entry.getKey(),(String)v);else if(v instanceof Boolean)edit.putBoolean(entry.getKey(),(Boolean)v);else if(v instanceof Integer)edit.putInt(entry.getKey(),(Integer)v);else if(v instanceof Long)edit.putLong(entry.getKey(),(Long)v);}edit.commit();}
+        if(originalDownloads!=null)getInstrumentation().getTargetContext().getSharedPreferences("downloads",0).edit().putString("history",originalDownloads).commit();
         if(originalProfiles!=null) getInstrumentation().getTargetContext().getSharedPreferences("accounts",0).edit().putString("profiles",originalProfiles).commit();
     }
     JSONObject account(String protocol) throws Exception {
@@ -33,7 +38,7 @@ public class PlayerSmokeTest {
             RemoteClient client=new RemoteClient(account(protocol)); JSONArray entries=client.list("/");
             assertTrue(entries.length()>=4); JSONObject selected=null;
             for(int i=0;i<entries.length();i++) if(entries.getJSONObject(i).optString("name").equals("sample.mp4")) selected=entries.getJSONObject(i);
-            assertNotNull(selected); String url=app.server.register(account(protocol),selected);
+            assertNotNull(selected); if(protocol.equals("http"))selected.put("size",123).put("sizeExact",false); String url=app.server.register(account(protocol),selected);
             HttpURLConnection connection=(HttpURLConnection)new URL(url).openConnection(); connection.setRequestProperty("Range","bytes=100-199");
             assertEquals(206,connection.getResponseCode()); assertEquals(100,connection.getContentLength());
             try(InputStream input=connection.getInputStream()) { int total=0; while(input.read()!=-1) total++; assertEquals(100,total); }
@@ -50,7 +55,7 @@ public class PlayerSmokeTest {
     @Test public void testNativePlaybackFormats() throws Exception {
         Context context=getInstrumentation().getTargetContext(); AppState app=(AppState)context.getApplicationContext();
         RemoteClient client=new RemoteClient(account("http")); JSONArray rows=client.list("/");
-        for(String filename:new String[]{"sample.mp4","hevc-main10.mkv","legacy.avi","mpeg2.mpg","windows-media.wmv","xvid.avi","divx.avi","realvideo.rm"}) {
+        for(String filename:new String[]{"sample.mp4","hevc-main10.mkv","legacy.avi","mpeg2.mpg","windows-media.wmv","xvid.avi","divx.avi","realvideo.rm","quicktime.mov"}) {
             JSONObject entry=null;
             for(int i=0;i<rows.length();i++) if(rows.getJSONObject(i).optString("name").equals(filename)) entry=rows.getJSONObject(i);
             assertNotNull(entry);
@@ -114,4 +119,87 @@ public class PlayerSmokeTest {
         assertTrue(((android.widget.ListView)list.get(browser)).getSelectedItemPosition()>=0);
         getInstrumentation().runOnMainSync(browser::finish);
     }
+    @Test public void testSortingAndBookmarks() throws Exception {
+        JSONObject profile=account("http");LibraryStore library=new LibraryStore(getInstrumentation().getTargetContext());
+        library.visited(profile,"/last");assertEquals("/last",library.startup(profile));library.start(profile,"/start");assertEquals("/start",library.startup(profile));library.start(profile,"");
+        JSONObject file=new JSONObject().put("name","movie.mov").put("path","/movie.mov").put("size",10);
+        boolean before=library.favorite(profile,"/movie.mov",false);library.toggle(profile,file,false);assertEquals(!before,library.favorite(profile,"/movie.mov",false));library.toggle(profile,file,false);
+        java.util.ArrayList<JSONObject> rows=new java.util.ArrayList<>();rows.add(new JSONObject().put("name","film10.mov").put("size",20).put("metadataKnown",true));rows.add(new JSONObject().put("name","film2.mkv").put("size",10).put("metadataKnown",true));rows.add(new JSONObject().put("name","missing.avi"));
+        LibraryStore.sort(rows,"name",false);assertEquals("film2.mkv",rows.get(0).getString("name"));LibraryStore.sort(rows,"size",true);assertEquals("film10.mov",rows.get(0).getString("name"));assertEquals("missing.avi",rows.get(2).getString("name"));
+        long[] parsed=RemoteClient.indexMetadata("2026-10-25 12:34 1.5M");assertEquals(1572864,parsed[0]);assertTrue(parsed[1]>0);
+    }
+    @Test public void testLandscapeLeavesRoomForFiles() throws Exception {
+        Context context=getInstrumentation().getTargetContext();new AccountStore(context).save(new JSONArray().put(account("http")));
+        Activity first=getInstrumentation().startActivitySync(new Intent(context,MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+        android.app.Instrumentation.ActivityMonitor monitor=getInstrumentation().addMonitor(MainActivity.class.getName(),null,false);
+        getInstrumentation().runOnMainSync(()->first.setRequestedOrientation(android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE));
+        Activity rotated=getInstrumentation().waitForMonitorWithTimeout(monitor,6000);if(rotated==null)rotated=first;
+        Thread.sleep(1200);java.lang.reflect.Field field=MainActivity.class.getDeclaredField("items");field.setAccessible(true);android.widget.ListView list=(android.widget.ListView)field.get(rotated);
+        assertTrue("No space for the file list",list.getHeight()/rotated.getResources().getDisplayMetrics().density>=130);
+        final Activity activity=rotated;getInstrumentation().runOnMainSync(activity::finish);getInstrumentation().removeMonitor(monitor);
+    }
+    private void showFile(MainActivity browser,String path) throws Exception {
+        java.lang.reflect.Field visible=MainActivity.class.getDeclaredField("visible"),items=MainActivity.class.getDeclaredField("items");visible.setAccessible(true);items.setAccessible(true);
+        getInstrumentation().runOnMainSync(()->{try{java.util.List<JSONObject> rows=(java.util.List<JSONObject>)visible.get(browser);for(int i=0;i<rows.size();i++)if(path.equals(rows.get(i).optString("path"))){((android.widget.ListView)items.get(browser)).setSelection(i);break;}}catch(Exception error){throw new RuntimeException(error);}});
+    }
+    @Test public void testThreeCachedVideoFrames() throws Exception {
+        Context context=getInstrumentation().getTargetContext();JSONObject profile=account("http");new AccountStore(context).save(new JSONArray().put(profile));
+        MainActivity browser=(MainActivity)getInstrumentation().startActivitySync(new Intent(context,MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+        java.lang.reflect.Field rowsField=MainActivity.class.getDeclaredField("entries"), thumbsField=MainActivity.class.getDeclaredField("thumbnails");rowsField.setAccessible(true);thumbsField.setAccessible(true);
+        long deadline=android.os.SystemClock.elapsedRealtime()+60000;android.graphics.Bitmap[] frames=null;JSONObject selected=null;boolean scrolled=false;
+        while(android.os.SystemClock.elapsedRealtime()<deadline&&frames==null){
+            JSONArray rows=(JSONArray)rowsField.get(browser);
+            for(int i=0;i<rows.length();i++){JSONObject row=rows.optJSONObject(i);if(MainActivity.kind(row).equals("video")){selected=row;break;}}
+            if(selected!=null){if(!scrolled){showFile(browser,selected.optString("path"));scrolled=true;}frames=((VideoThumbnails)thumbsField.get(browser)).get(profile,selected);}
+            Thread.sleep(200);
+        }
+        assertNotNull("No thumbnails: "+(selected==null?"no selected video":selected.toString())+"; "+((VideoThumbnails)thumbsField.get(browser)).debug(),frames);assertEquals(3,frames.length);
+        java.util.Set<Integer> colors=new java.util.HashSet<>();for(int x=0;x<320;x+=10)for(int y=0;y<180;y+=10)colors.add(frames[0].getPixel(x,y));assertTrue("Thumbnail is blank",colors.size()>8);
+        File directory=new File(context.getCacheDir(),"video-thumbnails-v1");String key=((VideoThumbnails)thumbsField.get(browser)).key(profile,selected);assertTrue(new File(directory,key+"-2.jpg").isFile());
+        long cachedAt=new File(directory,key+"-2.jpg").lastModified();
+        getInstrumentation().runOnMainSync(browser::finish);
+        MainActivity again=(MainActivity)getInstrumentation().startActivitySync(new Intent(context,MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+        Thread.sleep(1000);showFile(again,selected.optString("path"));
+        android.graphics.Bitmap[] reused=null;deadline=android.os.SystemClock.elapsedRealtime()+12000;
+        while(reused==null&&android.os.SystemClock.elapsedRealtime()<deadline){reused=((VideoThumbnails)thumbsField.get(again)).get(profile,selected);Thread.sleep(150);}
+        assertNotNull("Disk cache was not reused",reused);assertEquals(cachedAt,new File(directory,key+"-2.jpg").lastModified());
+        JSONObject changed=new JSONObject(selected.toString()).put("modified",selected.optLong("modified")+1000);assertNotEquals(key,((VideoThumbnails)thumbsField.get(again)).key(profile,changed));
+        getInstrumentation().runOnMainSync(again::finish);
+    }
+    @Test public void testAuthenticatedFtpDownload() throws Exception {
+        Context context=getInstrumentation().getTargetContext();JSONObject profile=account("ftp");new AccountStore(context).save(new JSONArray().put(profile));
+        Activity browser=getInstrumentation().startActivitySync(new Intent(context,MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));Thread.sleep(900);
+        RemoteClient client=new RemoteClient(profile);JSONArray rows=client.list("/");JSONObject entry=null;for(int i=0;i<rows.length();i++)if(rows.getJSONObject(i).getString("name").equals("sample.mp4"))entry=rows.getJSONObject(i);assertNotNull(entry);
+        File destination=new File(context.getFilesDir(),"download-test.mp4");
+        Intent service=new Intent(context,DownloadService.class).putExtra("account",profile.getString("id")).putExtra("entry",entry.toString()).putExtra("destination",android.net.Uri.fromFile(destination).toString());
+        getInstrumentation().runOnMainSync(()->{if(android.os.Build.VERSION.SDK_INT>=26)context.startForegroundService(service);else context.startService(service);});
+        long deadline=android.os.SystemClock.elapsedRealtime()+15000;boolean done=false;
+        while(android.os.SystemClock.elapsedRealtime()<deadline){JSONArray history=new JSONArray(context.getSharedPreferences("downloads",0).getString("history","[]"));if(history.length()>0&&history.getJSONObject(0).optString("name").equals("sample.mp4")&&history.getJSONObject(0).optString("result").equals("Zapisano plik")){done=true;break;}Thread.sleep(150);}
+        assertTrue("Download did not complete",done);assertEquals(client.size(entry),destination.length());destination.delete();getInstrumentation().runOnMainSync(browser::finish);
+    }
+    @Test public void testMissingStartupFolderAndFavorite() throws Exception {
+        Context context=getInstrumentation().getTargetContext();JSONObject profile=account("http");new AccountStore(context).save(new JSONArray().put(profile));
+        LibraryStore library=new LibraryStore(context);library.start(profile,"/deleted-folder");
+        MainActivity browser=(MainActivity)getInstrumentation().startActivitySync(new Intent(context,MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+        java.lang.reflect.Field path=MainActivity.class.getDeclaredField("path"), rows=MainActivity.class.getDeclaredField("entries"),pending=MainActivity.class.getDeclaredField("pendingOpen");path.setAccessible(true);rows.setAccessible(true);pending.setAccessible(true);
+        long deadline=android.os.SystemClock.elapsedRealtime()+12000;
+        while(android.os.SystemClock.elapsedRealtime()<deadline&&(!"/".equals(path.get(browser))||((JSONArray)rows.get(browser)).length()==0))Thread.sleep(150);
+        assertEquals("/",path.get(browser));assertTrue(((JSONArray)rows.get(browser)).length()>0);
+        getInstrumentation().runOnMainSync(()->{try{pending.set(browser,"/missing-file.mov");browser.navigate("/");}catch(Exception error){throw new RuntimeException(error);}});
+        deadline=android.os.SystemClock.elapsedRealtime()+10000;while(android.os.SystemClock.elapsedRealtime()<deadline&&!"".equals(pending.get(browser)))Thread.sleep(150);
+        assertEquals("",pending.get(browser));assertFalse(browser.isFinishing());library.start(profile,"");getInstrumentation().runOnMainSync(browser::finish);
+    }
+    @Test public void testFullWidthCardsKeepAspectRatio() throws Exception {
+        Context context=getInstrumentation().getTargetContext();JSONObject profile=account("http");new AccountStore(context).save(new JSONArray().put(profile));
+        MainActivity browser=(MainActivity)getInstrumentation().startActivitySync(new Intent(context,MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));Thread.sleep(1200);
+        java.lang.reflect.Field cards=MainActivity.class.getDeclaredField("cards"),type=MainActivity.class.getDeclaredField("kind"),listField=MainActivity.class.getDeclaredField("items");cards.setAccessible(true);type.setAccessible(true);listField.setAccessible(true);
+        java.lang.reflect.Method render=MainActivity.class.getDeclaredMethod("render");render.setAccessible(true);
+        getInstrumentation().runOnMainSync(()->{try{cards.setBoolean(browser,true);type.set(browser,"video");render.invoke(browser);java.lang.reflect.Field rows=MainActivity.class.getDeclaredField("visible");rows.setAccessible(true);java.util.List<JSONObject> files=(java.util.List<JSONObject>)rows.get(browser);for(int i=0;i<files.size();i++)if(MainActivity.kind(files.get(i)).equals("video")){((android.widget.ListView)listField.get(browser)).setSelection(i);break;}}catch(Exception error){throw new RuntimeException(error);}});Thread.sleep(700);
+        android.widget.ListView list=(android.widget.ListView)listField.get(browser);assertTrue(list.getChildCount()>0);
+        android.view.ViewGroup row=(android.view.ViewGroup)list.getChildAt(0);android.view.View artwork=row.getChildAt(0);
+        assertTrue("Card does not fill list width",artwork.getWidth()>=list.getWidth()-64);
+        assertTrue("Card preview is not 16:9",Math.abs(artwork.getHeight()/(float)artwork.getWidth()-9f/16f)<.06f);
+        getInstrumentation().runOnMainSync(browser::finish);
+    }
+
 }
